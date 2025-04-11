@@ -41,23 +41,63 @@ ISRAELI_CAPITATION = {
 REFERENCE_YEAR = 2017
 BASE_COUNTRY = "United States"  # Base country for PPP comparisons
 
-def load_capitation_weights():
-    """Load capitation weights from CSV file if it exists, otherwise use default values."""
+
+def load_capitation_weights(formula='israeli'):
+    """
+    Load capitation weights from CSV file if it exists, otherwise use default values.
+    
+    Args:
+        formula: The capitation formula to use ('israeli', 'ltc', or 'eu27')
+    
+    Returns:
+        Dictionary of capitation weights
+    """
     try:
         cap_df = pd.read_csv(current_path / "cap.csv", index_col="Age")
-        # Convert to dictionary format
-        cap_dict = {}
-        for age_group in cap_df.index:
-            cap_dict[age_group] = {
-                "Men": cap_df.loc[age_group, "Men"],
-                "Women": cap_df.loc[age_group, "Women"]
-            }
-        print("Loaded capitation weights from cap.csv")
-        return cap_dict
+        
+        if formula == 'israeli':
+            # Convert to dictionary format for Israeli formula (men/women separate)
+            cap_dict = {}
+            for age_group in cap_df.index:
+                cap_dict[age_group] = {
+                    "Men": cap_df.loc[age_group, "Men"],
+                    "Women": cap_df.loc[age_group, "Women"]
+                }
+            print(f"Loaded Israeli capitation weights from cap.csv")
+            return cap_dict, 'israeli'
+        
+        elif formula == 'ltc':
+            # Convert to dictionary format for LTC formula (combined)
+            cap_dict = {}
+            for age_group in cap_df.index:
+                cap_dict[age_group] = {
+                    "Combined": cap_df.loc[age_group, "LTC"]
+                }
+            print(f"Loaded LTC capitation weights from cap.csv")
+            return cap_dict, 'ltc'
+        
+        elif formula == 'eu27':
+            # Convert to dictionary format for EU27 formula (combined)
+            cap_dict = {}
+            for age_group in cap_df.index:
+                cap_dict[age_group] = {
+                    "Combined": cap_df.loc[age_group, "EU27"]
+                }
+            print(f"Loaded EU27 capitation weights from cap.csv")
+            return cap_dict, 'eu27'
+        
+        else:
+            print(f"Unknown formula '{formula}', using default Israeli capitation weights")
+            return ISRAELI_CAPITATION, 'israeli'
     
     except FileNotFoundError:
-        print("cap.csv not found, using default capitation weights")
-        return ISRAELI_CAPITATION
+        print("cap.csv not found, using default Israeli capitation weights")
+        return ISRAELI_CAPITATION, 'israeli'
+    
+    except KeyError as e:
+        print(f"Error loading capitation weights: Missing column {e} in cap.csv")
+        print("Using default Israeli capitation weights")
+        return ISRAELI_CAPITATION, 'israeli'
 
 def load_ppp_data():
     """
@@ -405,12 +445,20 @@ def map_age_group(un_age_group):
     
     return None
 
-def preprocess_population_data(male_pop, female_pop, cap_dict):
+def preprocess_population_data(male_pop, female_pop, cap_dict, formula_type='israeli'):
     """
     Calculate standardized population for each country and year using the capitation formula.
-    Vectorized version for better performance.
+    
+    Args:
+        male_pop: DataFrame with male population data
+        female_pop: DataFrame with female population data
+        cap_dict: Dictionary with capitation weights
+        formula_type: Type of capitation formula ('israeli', 'ltc', or 'eu27')
+    
+    Returns:
+        DataFrame with standardized population by country and year
     """
-    print("Calculating standardized population (vectorized)...")
+    print(f"Calculating standardized population using {formula_type} formula...")
     
     # Create a merged dataframe with all combinations of country and year
     country_year_combinations = pd.merge(
@@ -423,35 +471,68 @@ def preprocess_population_data(male_pop, female_pop, cap_dict):
     # Initialize standardized population column
     country_year_combinations['Standardized_Population'] = 0.0
     
-    # Process each age group with vectorized operations
-    for age_group in cap_dict:
-        # Filter male and female population for this age group
-        male_in_group = male_pop[male_pop['Age_Group'] == age_group]
-        female_in_group = female_pop[female_pop['Age_Group'] == age_group]
-        
-        # Get weights
-        male_weight = cap_dict[age_group]['Men']
-        female_weight = cap_dict[age_group]['Women']
-        
-        # Sum male population by country and year, then multiply by weight
-        male_weighted = male_in_group.groupby(['Country', 'Year'])['Population'].sum() * male_weight
-        
-        # Sum female population by country and year, then multiply by weight
-        female_weighted = female_in_group.groupby(['Country', 'Year'])['Population'].sum() * female_weight
-        
-        # Add to standardized population
-        for idx, row in country_year_combinations.iterrows():
-            country, year = row['Country'], row['Year']
-            try:
-                # Add male weighted population if available
-                if (country, year) in male_weighted.index:
-                    country_year_combinations.at[idx, 'Standardized_Population'] += male_weighted.get((country, year), 0)
-                
-                # Add female weighted population if available
-                if (country, year) in female_weighted.index:
-                    country_year_combinations.at[idx, 'Standardized_Population'] += female_weighted.get((country, year), 0)
-            except Exception as e:
-                print(f"Error adding weighted population for {country}, {year}, {age_group}: {e}")
+    if formula_type == 'israeli':
+        # Process each age group with vectorized operations - Israeli formula (separate men/women)
+        for age_group in cap_dict:
+            # Filter male and female population for this age group
+            male_in_group = male_pop[male_pop['Age_Group'] == age_group]
+            female_in_group = female_pop[female_pop['Age_Group'] == age_group]
+            
+            # Get weights
+            male_weight = cap_dict[age_group]['Men']
+            female_weight = cap_dict[age_group]['Women']
+            
+            # Sum male population by country and year, then multiply by weight
+            male_weighted = male_in_group.groupby(['Country', 'Year'])['Population'].sum() * male_weight
+            
+            # Sum female population by country and year, then multiply by weight
+            female_weighted = female_in_group.groupby(['Country', 'Year'])['Population'].sum() * female_weight
+            
+            # Add to standardized population
+            for idx, row in country_year_combinations.iterrows():
+                country, year = row['Country'], row['Year']
+                try:
+                    # Add male weighted population if available
+                    if (country, year) in male_weighted.index:
+                        country_year_combinations.at[idx, 'Standardized_Population'] += male_weighted.get((country, year), 0)
+                    
+                    # Add female weighted population if available
+                    if (country, year) in female_weighted.index:
+                        country_year_combinations.at[idx, 'Standardized_Population'] += female_weighted.get((country, year), 0)
+                except Exception as e:
+                    print(f"Error adding weighted population for {country}, {year}, {age_group}: {e}")
+    else:
+        # Process each age group - LTC or EU27 formula (combined men/women)
+        for age_group in cap_dict:
+            # Filter male and female population for this age group
+            male_in_group = male_pop[male_pop['Age_Group'] == age_group]
+            female_in_group = female_pop[female_pop['Age_Group'] == age_group]
+            
+            # Get combined weight
+            combined_weight = cap_dict[age_group]['Combined']
+            
+            # Sum male and female population by country and year
+            male_sum = male_in_group.groupby(['Country', 'Year'])['Population'].sum()
+            female_sum = female_in_group.groupby(['Country', 'Year'])['Population'].sum()
+            
+            # Add male and female populations, then multiply by combined weight
+            for idx, row in country_year_combinations.iterrows():
+                country, year = row['Country'], row['Year']
+                try:
+                    total_pop = 0
+                    
+                    # Add male population if available
+                    if (country, year) in male_sum.index:
+                        total_pop += male_sum.get((country, year), 0)
+                    
+                    # Add female population if available
+                    if (country, year) in female_sum.index:
+                        total_pop += female_sum.get((country, year), 0)
+                    
+                    # Multiply by weight and add to standardized population
+                    country_year_combinations.at[idx, 'Standardized_Population'] += total_pop * combined_weight
+                except Exception as e:
+                    print(f"Error adding weighted population for {country}, {year}, {age_group}: {e}")
     
     return country_year_combinations
 
@@ -1138,12 +1219,15 @@ def main():
     impute_ppp = False  # Set this to True to enable PPP imputation
     impute_gdp = False  # Set this to True to enable GDP deflator imputation
     
+    # Capitation formula to use
+    formula = 'ltc'
+    
     # Export
     export_path = Path("Standardized_Expenditure")
     export_path.mkdir(parents=True, exist_ok=True)
     
-    # Load capitation weights
-    cap_dict = load_capitation_weights()
+    # Load capitation weights - important to capture both return values
+    cap_dict, formula_type = load_capitation_weights(formula=formula)
     
     # Load data
     try:
@@ -1173,8 +1257,9 @@ def main():
         male_pop_raw, female_pop_raw = load_population_data()
         male_pop = standardize_country_names(male_pop_raw, country_column='Region, subregion, country or area *')
         female_pop = standardize_country_names(female_pop_raw, country_column='Region, subregion, country or area *')
-        # Calculate standardized population
-        standardized_pop = preprocess_population_data(male_pop, female_pop, cap_dict)
+        
+        # Calculate standardized population - use formula_type from the loaded weights
+        standardized_pop = preprocess_population_data(male_pop, female_pop, cap_dict, formula_type=formula_type)
         
         # Create base data for imputation documentation
         # Rename GHED columns for consistency with the rest of the data
@@ -1215,10 +1300,9 @@ def main():
             impute_missing_gdp=impute_gdp
         )
         
+        # Add imputation and formula info to the filename
+        filename = f"Health_Expenditure_per_Std_Capita_{formula_type}"
         
-        
-        # Add imputation info to the filename if imputation is disabled
-        filename = "Health_Expenditure_per_Std_Capita"
         if not impute_ppp or not impute_gdp:
             # Add suffix to filename to indicate imputation settings
             imputation_status = []
@@ -1227,19 +1311,14 @@ def main():
             if not impute_gdp:
                 imputation_status.append("no_gdp_imputed")
             
-            filename += "_" + "_".join(imputation_status)
+            if imputation_status:
+                filename += "_" + "_".join(imputation_status)
         
         filename += ".csv"
         results.to_csv(export_path / filename, index=False)
         
         print(f"\nResults saved to {export_path / filename}")
         
-        """
-        # Create summary with averages by country
-        create_summary_reports(results, export_path)
-        
-        print(f"\nResults saved to {export_path} directory")
-        """
     except Exception as e:
         print(f"Error processing data: {e}")
         import traceback
