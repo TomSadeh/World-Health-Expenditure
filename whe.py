@@ -18,8 +18,10 @@ from pathlib import Path
 
 # Define paths
 current_path = Path(".")
+data_path = current_path / "data"  # Create path to data folder
 export_path = Path("Standardized_Expenditure")
 export_path.mkdir(parents=True, exist_ok=True)
+
 
 # Israeli Capitation Formula weights by age group
 # If you have a cap.csv file, we'll load it, otherwise we'll use these default values
@@ -53,7 +55,7 @@ def load_capitation_weights(formula='israeli'):
         Dictionary of capitation weights
     """
     try:
-        cap_df = pd.read_csv(current_path / "cap.csv", index_col="Age")
+        cap_df = pd.read_csv(data_path / "cap.csv", index_col="Age")
         
         if formula == 'israeli':
             # Convert to dictionary format for Israeli formula (men/women separate)
@@ -113,7 +115,7 @@ def load_ppp_data():
         ppp_file = "API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv"
         
         # Load the CSV file, skipping the metadata rows
-        ppp_df = pd.read_csv(ppp_file)
+        ppp_df = pd.read_csv(data_path / ppp_file)
         
         # Process to create year-country pairs with PPP values
         ppp_data = []
@@ -175,7 +177,7 @@ def load_ghed_data():
     print("Loading GHED data...")
     try:
         # Read the GHED data
-        ghed_data = pd.read_excel(current_path / "GHED_data_2025.xlsx", sheet_name="Data")
+        ghed_data = pd.read_excel(data_path / "GHED_data_2025.xlsx", sheet_name="Data")
         
         # Check if the required columns exist
         required_cols = ['location', 'year', 'che']
@@ -238,8 +240,8 @@ def load_population_data():
     print("Loading population data...")
     try:
         # Load male and female population data from CSV files
-        male_pop_raw = pd.read_csv(current_path / "male_pop.csv")
-        female_pop_raw = pd.read_csv(current_path / "female_pop.csv")
+        male_pop_raw = pd.read_csv(data_path / "male_pop.csv")
+        female_pop_raw = pd.read_csv(data_path / "female_pop.csv")
         
         print(f"Male population raw data shape: {male_pop_raw.shape}")
         print(f"Female population raw data shape: {female_pop_raw.shape}")
@@ -554,8 +556,8 @@ def load_gdp_data(reference_year=2017):
         gdp_constant_file = "API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv"
         
         # Load the CSV files
-        gdp_current_df = pd.read_csv(gdp_current_file)
-        gdp_constant_df = pd.read_csv(gdp_constant_file)
+        gdp_current_df = pd.read_csv(data_path / gdp_current_file)
+        gdp_constant_df = pd.read_csv(data_path / gdp_constant_file)
         
         # Process both datasets to create year-country pairs with GDP values
         gdp_current_data = []
