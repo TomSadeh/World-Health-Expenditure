@@ -120,6 +120,42 @@ The script maps WPP age groups to Israeli Capitation Formula age groups as follo
 | 75-79, 80-84 | 75 to 84 |
 | 85-89, 90-94, 95-99, 100+ | 85 and over |
 
+### Data Limitations
+### World Population Prospects (WPP) Data
+
+It's important to note that the World Population Prospects (WPP) data used in this script are not direct census counts but rather estimates produced through various demographic methods. The United Nations Population Division generates these estimates using:
+
+- Multiple data sources including censuses, surveys, and administrative records
+- Demographic modeling techniques to estimate and project population distributions
+- Statistical methods to impute missing values and reconcile inconsistencies
+- Standardized approaches to handle varying data quality across countries
+
+These population estimates undergo rigorous validation but inherently contain some uncertainty, especially for countries with limited data collection infrastructure. Users should be aware that the standardized population calculations in this tool reflect these WPP estimation methodologies.
+
+### Global Health Expenditure Database (GHED) Data
+
+The Global Health Expenditure Database (GHED) data used in this script are compiled by the World Health Organization (WHO) and represent the most comprehensive source of health spending information. It's worth noting that:
+
+- Data are collected through National Health Accounts (NHA) frameworks that countries report to WHO
+- Some countries have gaps in reporting, which WHO addresses through estimation techniques
+- Methodological differences exist across countries in how health expenditures are categorized and reported
+- Revisions to historical data occur as countries improve their health accounting systems
+- Data quality varies by country, with high-income countries generally having more reliable estimates
+
+While GHED represents the global standard for health expenditure data, users should understand these underlying limitations when interpreting results.
+
+### World Bank PPP and GDP Data
+
+The World Bank data on Purchasing Power Parity (PPP) conversion factors and GDP used in this script come with several considerations:
+
+- PPP conversion factors are derived from the International Comparison Program (ICP), which conducts comprehensive price surveys only periodically (typically every 6 years)
+- Values for non-benchmark years are estimated through extrapolation and modeling
+- GDP deflators reflect countries' own national accounting practices, which may vary in methodology
+- Data revisions are common as countries update their national accounts
+- Coverage varies by country and year, with some developing economies having less reliable data
+
+These datasets undergo extensive quality assurance by the World Bank but necessarily contain estimation uncertainty that carries through to the final calculated indicators.
+
 ## Output Variables
 
 The generated dataset includes the following key variables:
