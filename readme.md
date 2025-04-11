@@ -135,18 +135,18 @@ The generated dataset includes the following key variables:
 
 ## License
 
-[Insert appropriate license information here]
+
 
 ## Contributing
 
-[Insert contribution guidelines here]
+
 
 ## Citation
 
 If you use this tool in your research, please cite:
 
-[Insert citation information here]
+
 
 ## Contact
 
-[Insert contact information here]
+Contact me at dtsj89@gmail.com if you have any questions or problems with the script or data used in it.
