@@ -49,7 +49,7 @@ The script standardizes health expenditure measurement across countries by apply
 Run the script with:
 
 ```
-python new_capitation.py
+python whe.py
 ```
 
 ### Configuration
