@@ -6,10 +6,10 @@ This tool calculates Health Expenditure per Standardized Capita with Purchasing 
 - World Population Prospects (WPP) 
 - World Bank PPP conversion factors
 
-The script standardizes health expenditure measurement across countries by applying the Israeli Capitation Formula to account for demographic differences and adjusts for purchasing power parity to enable meaningful cross-country comparisons.
+The script standardizes health expenditure measurement across countries by applying selectable capitation formulas to account for demographic differences and adjusts for purchasing power parity to enable meaningful cross-country comparisons.
 
 ## Features
-
+- **Multiple capitation formulas**: Choose between Israeli, LTC, or EU27 capitation formulas
 - **Demographic standardization**: Uses Israeli Capitation Formula weights to adjust for population age and gender distributions
 - **Expenditure component analysis**: Separates total health expenditure into public and private components
 - **Constant price conversion**: Applies GDP deflators to convert nominal values to constant prices
@@ -29,7 +29,7 @@ The script standardizes health expenditure measurement across countries by apply
 - `GHED_data_2025.xlsx`: Health expenditure data from the Global Health Expenditure Database
 - `male_pop.csv`: Male population data by age groups from World Population Prospects
 - `female_pop.csv`: Female population data by age groups from World Population Prospects
-- `cap.csv`: Israeli capitation formula weights by age group (optional - default weights provided)
+- `cap.csv`: Capitation formula weights by age group (contains Israeli, LTC, and EU27 formulas)
 - `API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`: World Bank PPP conversion factors
 - GDP data files (optional):
   - `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`: GDP in current LCU
