@@ -42,7 +42,7 @@ The script standardizes health expenditure measurement across countries by apply
    ```
    pip install pandas numpy
    ```
-3. Place the required data files in the same directory as the script
+3. Place the required data files in the "data" directory if they are not in it
 
 ## Usage
 
