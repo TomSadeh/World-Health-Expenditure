@@ -120,7 +120,7 @@ The script maps WPP age groups to Israeli Capitation Formula age groups as follo
 | 75-79, 80-84 | 75 to 84 |
 | 85-89, 90-94, 95-99, 100+ | 85 and over |
 
-### Data Limitations
+## Data Limitations
 ### World Population Prospects (WPP) Data
 
 It's important to note that the World Population Prospects (WPP) data used in this script are not direct census counts but rather estimates produced through various demographic methods. The United Nations Population Division generates these estimates using:
