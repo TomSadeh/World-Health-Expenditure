@@ -134,11 +134,12 @@ These population estimates undergo rigorous validation but inherently contain so
 
 ### Global Health Expenditure Database (GHED) Data
 
-The Global Health Expenditure Database (GHED) data used in this script are compiled by the World Health Organization (WHO) and represent the most comprehensive source of health spending information. It's worth noting that:
+The Global Health Expenditure Database (GHED) data used in this script are compiled by the World Health Organization (WHO) and represent the most comprehensive source of health spending information. This script uses only highly aggregated GHED indicators, which should consist of non-imputed data reported directly by countries. It's worth noting that:
 
 - Data are collected through National Health Accounts (NHA) frameworks that countries report to WHO
-- Some countries have gaps in reporting, which WHO addresses through estimation techniques
-- Methodological differences exist across countries in how health expenditures are categorized and reported
+- The aggregated indicators used in this script represent the most reliable portion of GHED data
+- By focusing on top-level expenditure categories, the script avoids many of the data quality issues present in more granular GHED components
+- Even at the aggregate level, methodological differences exist across countries in how health expenditures are categorized and reported
 - Revisions to historical data occur as countries improve their health accounting systems
 - Data quality varies by country, with high-income countries generally having more reliable estimates
 
