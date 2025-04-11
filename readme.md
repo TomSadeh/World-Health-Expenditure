@@ -6,10 +6,10 @@ This tool calculates Health Expenditure per Standardized Capita with Purchasing 
 - World Population Prospects (WPP) 
 - World Bank PPP conversion factors
 
-The script standardizes health expenditure measurement across countries by applying the Israeli Capitation Formula to account for demographic differences and adjusts for purchasing power parity to enable meaningful cross-country comparisons.
+The script standardizes health expenditure measurement across countries by applying selectable capitation formulas to account for demographic differences and adjusts for purchasing power parity to enable meaningful cross-country comparisons.
 
 ## Features
-
+- **Multiple capitation formulas**: Choose between Israeli, LTC, or EU27 capitation formulas
 - **Demographic standardization**: Uses Israeli Capitation Formula weights to adjust for population age and gender distributions
 - **Expenditure component analysis**: Separates total health expenditure into public and private components
 - **Constant price conversion**: Applies GDP deflators to convert nominal values to constant prices
@@ -29,7 +29,7 @@ The script standardizes health expenditure measurement across countries by apply
 - `GHED_data_2025.xlsx`: Health expenditure data from the Global Health Expenditure Database
 - `male_pop.csv`: Male population data by age groups from World Population Prospects
 - `female_pop.csv`: Female population data by age groups from World Population Prospects
-- `cap.csv`: Israeli capitation formula weights by age group (optional - default weights provided)
+- `cap.csv`: Capitation formula weights by age group (contains Israeli, LTC, and EU27 formulas)
 - `API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`: World Bank PPP conversion factors
 - GDP data files (optional):
   - `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`: GDP in current LCU
@@ -119,6 +119,43 @@ The script maps WPP age groups to Israeli Capitation Formula age groups as follo
 | 65-69, 70-74 | 65 to 74 |
 | 75-79, 80-84 | 75 to 84 |
 | 85-89, 90-94, 95-99, 100+ | 85 and over |
+
+## Data Limitations
+### World Population Prospects (WPP) Data
+
+It's important to note that the World Population Prospects (WPP) data used in this script are not direct census counts but rather estimates produced through various demographic methods. The United Nations Population Division generates these estimates using:
+
+- Multiple data sources including censuses, surveys, and administrative records
+- Demographic modeling techniques to estimate and project population distributions
+- Statistical methods to impute missing values and reconcile inconsistencies
+- Standardized approaches to handle varying data quality across countries
+
+These population estimates undergo rigorous validation but inherently contain some uncertainty, especially for countries with limited data collection infrastructure. Users should be aware that the standardized population calculations in this tool reflect these WPP estimation methodologies.
+
+### Global Health Expenditure Database (GHED) Data
+
+The Global Health Expenditure Database (GHED) data used in this script are compiled by the World Health Organization (WHO) and represent the most comprehensive source of health spending information. This script uses only highly aggregated GHED indicators, which should consist of non-imputed data reported directly by countries. It's worth noting that:
+
+- Data are collected through National Health Accounts (NHA) frameworks that countries report to WHO
+- The aggregated indicators used in this script represent the most reliable portion of GHED data
+- By focusing on top-level expenditure categories, the script avoids many of the data quality issues present in more granular GHED components
+- Even at the aggregate level, methodological differences exist across countries in how health expenditures are categorized and reported
+- Revisions to historical data occur as countries improve their health accounting systems
+- Data quality varies by country, with high-income countries generally having more reliable estimates
+
+While GHED represents the global standard for health expenditure data, users should understand these underlying limitations when interpreting results.
+
+### World Bank PPP and GDP Data
+
+The World Bank data on Purchasing Power Parity (PPP) conversion factors and GDP used in this script come with several considerations:
+
+- PPP conversion factors are derived from the International Comparison Program (ICP), which conducts comprehensive price surveys only periodically (typically every 6 years)
+- Values for non-benchmark years are estimated through extrapolation and modeling
+- GDP deflators reflect countries' own national accounting practices, which may vary in methodology
+- Data revisions are common as countries update their national accounts
+- Coverage varies by country and year, with some developing economies having less reliable data
+
+These datasets undergo extensive quality assurance by the World Bank but necessarily contain estimation uncertainty that carries through to the final calculated indicators.
 
 ## Output Variables
 
