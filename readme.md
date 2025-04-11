@@ -91,7 +91,7 @@ The script uses the Israeli Capitation Formula to standardize population demogra
 | 75 to 84 | 3.64 | 3.23 |
 | 85 and over | 3.64 | 2.70 |
 
-These weights can be customized by providing a `cap.csv` file.
+These weights can be customized by providing a cap.csv file. The cap file contains capitation formulae for other countries as well, including EU27 and OECD with long-term care adjustments, but currently the script only implements the Israeli formula. Future versions may incorporate these additional formulations.
 
 ### Data Processing Steps
 
@@ -135,18 +135,18 @@ The generated dataset includes the following key variables:
 
 ## License
 
-[Insert appropriate license information here]
+
 
 ## Contributing
 
-[Insert contribution guidelines here]
+
 
 ## Citation
 
 If you use this tool in your research, please cite:
 
-[Insert citation information here]
+
 
 ## Contact
 
-[Insert contact information here]
+Contact me at dtsj89@gmail.com if you have any questions or problems with the script or data used in it.
