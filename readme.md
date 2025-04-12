@@ -42,7 +42,7 @@ The script standardizes health expenditure measurement across countries by apply
    ```
    pip install pandas numpy
    ```
-3. Place the required data files in the same directory as the script
+3. Place the required data files in the "data" directory if they are not in it
 
 ## Usage
 
@@ -91,7 +91,7 @@ The script uses the Israeli Capitation Formula to standardize population demogra
 | 75 to 84 | 3.64 | 3.23 |
 | 85 and over | 3.64 | 2.70 |
 
-These weights can be customized by providing a cap.csv file. The cap file contains capitation formulae for other countries as well, including EU27 and OECD with long-term care adjustments, but currently the script only implements the Israeli formula. Future versions may incorporate these additional formulations.
+These weights can be customized by providing a cap.csv file. The cap file contains capitation formulae as well, including EU27 and OECD with long-term care adjustment. Future versions may incorporate additional formulations.
 
 ### Data Processing Steps
 
