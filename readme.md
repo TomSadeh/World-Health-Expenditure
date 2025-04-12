@@ -19,6 +19,7 @@ The script standardizes health expenditure measurement across countries by apply
 - **Missing data handling**: Optional imputation for missing PPP and GDP deflator values
 - **Country name standardization**: Harmonizes country names across different datasets
 - **Comprehensive reporting**: Generates detailed output with imputation documentation and data dictionary
+- **Performance optimization**: Includes GHED data converter for faster processing of large datasets
 
 ## Requirements
 
@@ -29,6 +30,7 @@ The script standardizes health expenditure measurement across countries by apply
 
 ### Required Data Files
 - `GHED_data_2025.xlsx`: Health expenditure data from the Global Health Expenditure Database
+  - *Note: Can be converted to optimized CSV format using the included `ghed_to_csv.py` script*
 - `male_pop.csv`: Male population data by age groups from World Population Prospects
 - `female_pop.csv`: Female population data by age groups from World Population Prospects
 - `cap.csv`: Capitation formula weights by age group (contains Israeli, LTC, and EU27 formulas)
@@ -36,6 +38,9 @@ The script standardizes health expenditure measurement across countries by apply
 - GDP data files (required for constant price calculations):
   - `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`: GDP in current LCU
   - `API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`: GDP in constant LCU
+
+### Generated Files
+- `data/processed/ghed_data_optimized.csv`: Optimized GHED data (created by `ghed_to_csv.py`)
 
 ## Installation
 
@@ -45,10 +50,33 @@ The script standardizes health expenditure measurement across countries by apply
    pip install pandas numpy
    ```
 3. Place the required data files in the "data" directory if they are not in it
+4. (Optional but recommended) Convert the GHED Excel file to optimized CSV format:
+   ```
+   python ghed_to_csv.py
+   ```
+   This significantly improves loading performance with large GHED datasets
 
 ## Usage
 
-Run the script with:
+### GHED Excel to CSV Conversion (Recommended)
+
+Before running the main script, it's recommended to convert the GHED Excel file to an optimized CSV format:
+
+```
+python ghed_to_csv.py
+```
+
+This preprocessing step offers several advantages:
+- Significantly faster loading times (often 10-20x faster)
+- Reduced memory usage
+- Only extracts the necessary columns
+- Pre-calculates public and private expenditure components
+
+The converter will create a file called `ghed_data_optimized.csv` in the `data/processed` directory, which the main script will automatically use if available.
+
+### Running the Main Script
+
+After preparing the data, run the main script:
 
 ```
 python whe.py
@@ -131,7 +159,14 @@ The tool now calculates health expenditure with four different adjustment combin
 
 ### Data Processing Steps
 
-1. **Data Loading**: Reads GHED, WPP, and World Bank data files
+### Pre-processing (optional but recommended)
+1. **GHED Data Optimization**: Convert Excel to optimized CSV format using `ghed_to_csv.py`
+   - Extracts only required columns
+   - Pre-calculates public and private expenditure
+   - Significantly improves loading speed and reduces memory usage
+
+### Main Processing
+1. **Data Loading**: Reads GHED (original or optimized), WPP, and World Bank data files
 2. **Country Name Standardization**: Harmonizes country names across datasets
 3. **Population Standardization**: Applies capitation weights to demographic data
 4. **Base Indicator Calculation**: Computes per standardized capita metrics with current prices
