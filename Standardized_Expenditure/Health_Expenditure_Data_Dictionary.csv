@@ -1,0 +1,44 @@
+Column,Description
+ISO3,ISO3 country code
+Country,Country name
+Year,Year of data
+Standardized_Population,Population standardized using capitation formula
+Total_Health_Expenditure,Total health expenditure in local currency units (LCU)
+Public_Health_Expenditure,Public health expenditure in LCU
+Private_Health_Expenditure,Private health expenditure in LCU
+THE_per_Std_Capita_Current,Total health expenditure per standardized capita (current LCU)
+PubHE_per_Std_Capita_Current,Public health expenditure per standardized capita (current LCU)
+PvtHE_per_Std_Capita_Current,Private health expenditure per standardized capita (current LCU)
+THE_Constant,Total health expenditure in constant 2017 LCU
+THE_per_Std_Capita_Constant,Total health expenditure per standardized capita (constant 2017 LCU)
+PubHE_Constant,Public health expenditure in constant 2017 LCU
+PubHE_per_Std_Capita_Constant,Public health expenditure per standardized capita (constant 2017 LCU)
+PvtHE_Constant,Private health expenditure in constant 2017 LCU
+PvtHE_per_Std_Capita_Constant,Private health expenditure per standardized capita (constant 2017 LCU)
+THE_CurrentPPP,Total health expenditure in current international $ (current PPP)
+THE_per_Std_Capita_CurrentPPP,"Total health expenditure per standardized capita (current international $, current PPP)"
+PubHE_CurrentPPP,Public health expenditure in current international $ (current PPP)
+PubHE_per_Std_Capita_CurrentPPP,"Public health expenditure per standardized capita (current international $, current PPP)"
+PvtHE_CurrentPPP,Private health expenditure in current international $ (current PPP)
+PvtHE_per_Std_Capita_CurrentPPP,"Private health expenditure per standardized capita (current international $, current PPP)"
+THE_Constant_CurrentPPP,Total health expenditure in constant 2017 international $ (current PPP)
+THE_per_Std_Capita_Constant_CurrentPPP,"Total health expenditure per standardized capita (constant 2017 international $, current PPP)"
+PubHE_Constant_CurrentPPP,Public health expenditure in constant 2017 international $ (current PPP)
+PubHE_per_Std_Capita_Constant_CurrentPPP,"Public health expenditure per standardized capita (constant 2017 international $, current PPP)"
+PvtHE_Constant_CurrentPPP,Private health expenditure in constant 2017 international $ (current PPP)
+PvtHE_per_Std_Capita_Constant_CurrentPPP,"Private health expenditure per standardized capita (constant 2017 international $, current PPP)"
+THE_ConstantPPP,Total health expenditure in current LCU converted to international $ using 2017 PPP factors
+THE_per_Std_Capita_ConstantPPP,Total health expenditure per standardized capita (current LCU converted to international $ using 2017 PPP factors)
+PubHE_ConstantPPP,Public health expenditure in current LCU converted to international $ using 2017 PPP factors
+PubHE_per_Std_Capita_ConstantPPP,Public health expenditure per standardized capita (current LCU converted to international $ using 2017 PPP factors)
+PvtHE_ConstantPPP,Private health expenditure in current LCU converted to international $ using 2017 PPP factors
+PvtHE_per_Std_Capita_ConstantPPP,Private health expenditure per standardized capita (current LCU converted to international $ using 2017 PPP factors)
+THE_Constant_ConstantPPP,Total health expenditure in constant 2017 LCU converted to international $ using 2017 PPP factors
+THE_per_Std_Capita_Constant_ConstantPPP,Total health expenditure per standardized capita (constant 2017 LCU converted to international $ using 2017 PPP factors)
+PubHE_Constant_ConstantPPP,Public health expenditure in constant 2017 LCU converted to international $ using 2017 PPP factors
+PubHE_per_Std_Capita_Constant_ConstantPPP,Public health expenditure per standardized capita (constant 2017 LCU converted to international $ using 2017 PPP factors)
+PvtHE_Constant_ConstantPPP,Private health expenditure in constant 2017 LCU converted to international $ using 2017 PPP factors
+PvtHE_per_Std_Capita_Constant_ConstantPPP,Private health expenditure per standardized capita (constant 2017 LCU converted to international $ using 2017 PPP factors)
+Indicator_Notes,Additional information about the data and calculations
+GDP_Deflator,GDP deflator factor (base: reference year)
+PPP_Factor,Current PPP conversion factor (LCU per international $)
