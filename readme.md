@@ -1,4 +1,4 @@
-# Health Expenditure per Standardized Capita Calculator
+# World Health Expenditure
 
 This tool calculates Health Expenditure per Standardized Capita with Purchasing Power Parity (PPP) adjustment by processing data from multiple international sources:
 
