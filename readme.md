@@ -10,13 +10,15 @@ The script standardizes health expenditure measurement across countries by apply
 
 ## Features
 - **Multiple capitation formulas**: Choose between Israeli, LTC, or EU27 capitation formulas
-- **Demographic standardization**: Uses Israeli Capitation Formula weights to adjust for population age and gender distributions
+- **Demographic standardization**: Uses capitation formula weights to adjust for population age and gender distributions
 - **Expenditure component analysis**: Separates total health expenditure into public and private components
+- **Comprehensive adjustment combinations**: Calculates all combinations of current/constant prices and current/constant PPP
 - **Constant price conversion**: Applies GDP deflators to convert nominal values to constant prices
 - **Purchasing power parity adjustment**: Normalizes expenditure across countries using PPP conversion factors
+- **Time series consistency**: Option to use constant PPP factors from reference year for better time series comparisons
 - **Missing data handling**: Optional imputation for missing PPP and GDP deflator values
 - **Country name standardization**: Harmonizes country names across different datasets
-- **Comprehensive reporting**: Generates detailed output with imputation documentation
+- **Comprehensive reporting**: Generates detailed output with imputation documentation and data dictionary
 
 ## Requirements
 
@@ -31,7 +33,7 @@ The script standardizes health expenditure measurement across countries by apply
 - `female_pop.csv`: Female population data by age groups from World Population Prospects
 - `cap.csv`: Capitation formula weights by age group (contains Israeli, LTC, and EU27 formulas)
 - `API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`: World Bank PPP conversion factors
-- GDP data files (optional):
+- GDP data files (required for constant price calculations):
   - `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`: GDP in current LCU
   - `API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`: GDP in constant LCU
 
@@ -60,6 +62,7 @@ The main script parameters can be adjusted at the top of the file:
 - `BASE_COUNTRY`: Base country for PPP comparisons (default: "United States")
 - `impute_ppp`: Enable/disable PPP imputation (default: False)
 - `impute_gdp`: Enable/disable GDP deflator imputation (default: False)
+- `formula`: Capitation formula to use ('israeli', 'ltc', or 'eu27')
 
 If desired, you can modify the Israeli Capitation Formula weights defined in the `ISRAELI_CAPITATION` dictionary.
 
@@ -67,16 +70,24 @@ If desired, you can modify the Israeli Capitation Formula weights defined in the
 
 The script creates a directory named `Standardized_Expenditure` containing:
 
-- `Health_Expenditure_per_Std_Capita.csv`: Main output file with all calculated metrics
+- `Health_Expenditure_Comprehensive_{formula_type}_ref{reference_year}.csv`: Main output file with all calculated metrics and adjustment combinations
+- `Health_Expenditure_Data_Dictionary.csv`: Detailed description of each column in the output file
+- `ISO3_country_mapping.csv`: Mapping between ISO3 codes and country names
 - `imputation_documentation.csv`: Records of data imputation if enabled
 
-Filename suffixes like `_no_ppp_imputed_no_gdp_imputed` indicate imputation settings used.
+Filename suffixes indicate formula type, reference year, and imputation settings used.
 
 ## Methodology
 
-### Israeli Capitation Formula
+### Capitation Formulas
 
-The script uses the Israeli Capitation Formula to standardize population demographics across countries. This formula assigns weights to different age-gender groups to adjust for varying healthcare needs:
+The script supports multiple capitation formulas:
+
+1. **Israeli Capitation Formula**: Assigns different weights to men and women in various age groups
+2. **LTC Formula**: Adjusted weights that account for long-term care needs
+3. **EU27 Formula**: Based on average utilization patterns across EU member states
+
+The default Israeli Capitation Formula assigns weights to different age-gender groups to adjust for varying healthcare needs:
 
 | Age Group | Men | Women |
 |-----------|-----|-------|
@@ -91,21 +102,48 @@ The script uses the Israeli Capitation Formula to standardize population demogra
 | 75 to 84 | 3.64 | 3.23 |
 | 85 and over | 3.64 | 2.70 |
 
-These weights can be customized by providing a cap.csv file. The cap file contains capitation formulae as well, including EU27 and OECD with long-term care adjustment. Future versions may incorporate additional formulations.
+These weights can be customized by providing a cap.csv file.
+
+### Adjustment Combinations
+
+The tool now calculates health expenditure with four different adjustment combinations:
+
+1. **Current prices, current PPP**
+   - Uses prices from each year
+   - Uses PPP factors from each year
+   - Good for: Point-in-time comparisons within a single year
+
+2. **Current prices, constant PPP**
+   - Uses prices from each year
+   - Uses PPP factors only from reference year
+   - Good for: Removing the effect of changing PPP factors
+
+3. **Constant prices, current PPP**
+   - Adjusts all prices to reference year (removes inflation)
+   - Uses PPP factors from each year
+   - Good for: Removing the effect of inflation
+
+4. **Constant prices, constant PPP**
+   - Adjusts all prices to reference year (removes inflation)
+   - Uses PPP factors only from reference year
+   - Good for: Time series analysis and cross-country comparisons
+   - **Most methodologically sound for longitudinal comparisons**
 
 ### Data Processing Steps
 
 1. **Data Loading**: Reads GHED, WPP, and World Bank data files
 2. **Country Name Standardization**: Harmonizes country names across datasets
 3. **Population Standardization**: Applies capitation weights to demographic data
-4. **Price Adjustment**: Converts to constant prices using GDP deflators
-5. **PPP Adjustment**: Normalizes using purchasing power parity conversion factors
-6. **Per Capita Calculation**: Computes expenditure per standardized capita
-7. **Imputation Documentation**: Records any data imputations performed
+4. **Base Indicator Calculation**: Computes per standardized capita metrics with current prices
+5. **GDP Deflator Adjustment**: Converts to constant prices using GDP deflators (if available)
+6. **Current PPP Adjustment**: Applies current-year PPP factors to both current and constant prices
+7. **Constant PPP Adjustment**: Applies reference-year PPP factors to both current and constant prices
+8. **Imputation Documentation**: Records any data imputations performed
+9. **Output Generation**: Creates comprehensive CSV with all indicator combinations and data dictionary
 
 ### Age Group Mapping
 
-The script maps WPP age groups to Israeli Capitation Formula age groups as follows:
+The script maps WPP age groups to capitation formula age groups as follows:
 
 | WPP Age Groups | Capitation Age Group |
 |----------------|---------------------|
@@ -161,14 +199,64 @@ These datasets undergo extensive quality assurance by the World Bank but necessa
 
 The generated dataset includes the following key variables:
 
-- `Country`, `Year`: Country and year identifiers
-- `Standardized_Population`: Population adjusted using capitation weights
-- `Total_Health_Expenditure`: Raw health expenditure in local currency units
-- `Public_Health_Expenditure`, `Private_Health_Expenditure`: Public and private components
-- `Total_Health_Expenditure_per_Std_Capita`: Expenditure divided by standardized population
-- `*_Constant`: Variables adjusted to constant prices using GDP deflators
-- `*_PPP`: Variables adjusted for purchasing power parity
-- `*_Constant_PPP`: Variables with both constant price and PPP adjustments
+### Base Metrics
+- `ISO3`: ISO3 country code
+- `Country`: Country name
+- `Year`: Year of data
+- `Standardized_Population`: Population standardized using capitation formula
+- `Total_Health_Expenditure`: Total health expenditure in local currency units (LCU)
+- `Public_Health_Expenditure`: Public health expenditure in LCU
+- `Private_Health_Expenditure`: Private health expenditure in LCU
+
+### Current Prices Indicators (No PPP)
+- `THE_per_Std_Capita_Current`: Total health expenditure per standardized capita (current LCU)
+- `PubHE_per_Std_Capita_Current`: Public health expenditure per standardized capita (current LCU)
+- `PvtHE_per_Std_Capita_Current`: Private health expenditure per standardized capita (current LCU)
+
+### Constant Prices Indicators (No PPP)
+- `THE_Constant`: Total health expenditure in constant reference year LCU
+- `THE_per_Std_Capita_Constant`: Total health expenditure per standardized capita (constant reference year LCU)
+- `PubHE_Constant`: Public health expenditure in constant reference year LCU
+- `PubHE_per_Std_Capita_Constant`: Public health expenditure per standardized capita (constant reference year LCU)
+- `PvtHE_Constant`: Private health expenditure in constant reference year LCU
+- `PvtHE_per_Std_Capita_Constant`: Private health expenditure per standardized capita (constant reference year LCU)
+
+### Current Prices with Current PPP
+- `THE_CurrentPPP`: Total health expenditure in current international $ (current PPP)
+- `THE_per_Std_Capita_CurrentPPP`: Total health expenditure per standardized capita (current international $, current PPP)
+- `PubHE_CurrentPPP`: Public health expenditure in current international $ (current PPP)
+- `PubHE_per_Std_Capita_CurrentPPP`: Public health expenditure per standardized capita (current international $, current PPP)
+- `PvtHE_CurrentPPP`: Private health expenditure in current international $ (current PPP)
+- `PvtHE_per_Std_Capita_CurrentPPP`: Private health expenditure per standardized capita (current international $, current PPP)
+
+### Constant Prices with Current PPP
+- `THE_Constant_CurrentPPP`: Total health expenditure in constant reference year international $ (current PPP)
+- `THE_per_Std_Capita_Constant_CurrentPPP`: Total health expenditure per standardized capita (constant reference year international $, current PPP)
+- `PubHE_Constant_CurrentPPP`: Public health expenditure in constant reference year international $ (current PPP)
+- `PubHE_per_Std_Capita_Constant_CurrentPPP`: Public health expenditure per standardized capita (constant reference year international $, current PPP)
+- `PvtHE_Constant_CurrentPPP`: Private health expenditure in constant reference year international $ (current PPP)
+- `PvtHE_per_Std_Capita_Constant_CurrentPPP`: Private health expenditure per standardized capita (constant reference year international $, current PPP)
+
+### Current Prices with Constant PPP
+- `THE_ConstantPPP`: Total health expenditure in current LCU converted to international $ using reference year PPP factors
+- `THE_per_Std_Capita_ConstantPPP`: Total health expenditure per standardized capita (current LCU converted to international $ using reference year PPP factors)
+- `PubHE_ConstantPPP`: Public health expenditure in current LCU converted to international $ using reference year PPP factors
+- `PubHE_per_Std_Capita_ConstantPPP`: Public health expenditure per standardized capita (current LCU converted to international $ using reference year PPP factors)
+- `PvtHE_ConstantPPP`: Private health expenditure in current LCU converted to international $ using reference year PPP factors
+- `PvtHE_per_Std_Capita_ConstantPPP`: Private health expenditure per standardized capita (current LCU converted to international $ using reference year PPP factors)
+
+### Constant Prices with Constant PPP (Recommended for Time Series)
+- `THE_Constant_ConstantPPP`: Total health expenditure in constant reference year LCU converted to international $ using reference year PPP factors
+- `THE_per_Std_Capita_Constant_ConstantPPP`: Total health expenditure per standardized capita (constant reference year LCU converted to international $ using reference year PPP factors)
+- `PubHE_Constant_ConstantPPP`: Public health expenditure in constant reference year LCU converted to international $ using reference year PPP factors
+- `PubHE_per_Std_Capita_Constant_ConstantPPP`: Public health expenditure per standardized capita (constant reference year LCU converted to international $ using reference year PPP factors)
+- `PvtHE_Constant_ConstantPPP`: Private health expenditure in constant reference year LCU converted to international $ using reference year PPP factors
+- `PvtHE_per_Std_Capita_Constant_ConstantPPP`: Private health expenditure per standardized capita (constant reference year LCU converted to international $ using reference year PPP factors)
+
+### Other Metrics
+- `Indicator_Notes`: Additional information about the data and calculations
+- `GDP_Deflator`: GDP deflator factor (base: reference year)
+- `PPP_Factor`: Current PPP conversion factor (LCU per international $)
 
 ## License
 
