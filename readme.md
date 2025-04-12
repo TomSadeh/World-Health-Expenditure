@@ -2,9 +2,9 @@
 
 This tool calculates Health Expenditure per Standardized Capita with Purchasing Power Parity (PPP) adjustment by processing data from multiple international sources:
 
-- Global Health Expenditure Database (GHED)
-- World Population Prospects (WPP) 
-- World Bank PPP conversion factors
+- [Global Health Expenditure Database (GHED)](https://apps.who.int/nha/database) from WHO
+- [World Population Prospects (WPP)](https://population.un.org/wpp/) from the United Nations 
+- [World Bank PPP conversion factors](https://data.worldbank.org/indicator/PA.NUS.PPP)
 
 The script standardizes health expenditure measurement across countries by applying selectable capitation formulas to account for demographic differences and adjusts for purchasing power parity to enable meaningful cross-country comparisons.
 
@@ -29,15 +29,15 @@ The script standardizes health expenditure measurement across countries by apply
 - pathlib
 
 ### Required Data Files
-- `GHED_data_2025.xlsx`: Health expenditure data from the Global Health Expenditure Database
+- [`GHED_data_2025.xlsx`](https://apps.who.int/nha/database/Select/Indicators/en): Health expenditure data from the Global Health Expenditure Database
   - *Note: Can be converted to optimized CSV format using the included `ghed_to_csv.py` script*
-- `male_pop.csv`: Male population data by age groups from World Population Prospects
-- `female_pop.csv`: Female population data by age groups from World Population Prospects
+- `male_pop.csv`: Male population data by age groups from [World Population Prospects](https://population.un.org/wpp/Download/Standard/Population/)
+- `female_pop.csv`: Female population data by age groups from [World Population Prospects](https://population.un.org/wpp/Download/Standard/Population/)
 - `cap.csv`: Capitation formula weights by age group (contains Israeli, LTC, and EU27 formulas)
-- `API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`: World Bank PPP conversion factors
+- [`API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`](https://data.worldbank.org/indicator/PA.NUS.PPP): World Bank PPP conversion factors
 - GDP data files (required for constant price calculations):
-  - `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`: GDP in current LCU
-  - `API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`: GDP in constant LCU
+  - [`API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`](https://data.worldbank.org/indicator/NY.GDP.MKTP.CN): GDP in current LCU
+  - [`API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`](https://data.worldbank.org/indicator/NY.GDP.MKTP.KN): GDP in constant LCU
 
 ### Generated Files
 - `data/processed/ghed_data_optimized.csv`: Optimized GHED data (created by `ghed_to_csv.py`)
@@ -196,7 +196,7 @@ The script maps WPP age groups to capitation formula age groups as follows:
 ## Data Limitations
 ### World Population Prospects (WPP) Data
 
-It's important to note that the World Population Prospects (WPP) data used in this script are not direct census counts but rather estimates produced through various demographic methods. The United Nations Population Division generates these estimates using:
+It's important to note that the [World Population Prospects (WPP)](https://population.un.org/wpp/) data used in this script are not direct census counts but rather estimates produced through various demographic methods. The United Nations Population Division generates these estimates using:
 
 - Multiple data sources including censuses, surveys, and administrative records
 - Demographic modeling techniques to estimate and project population distributions
@@ -207,7 +207,7 @@ These population estimates undergo rigorous validation but inherently contain so
 
 ### Global Health Expenditure Database (GHED) Data
 
-The Global Health Expenditure Database (GHED) data used in this script are compiled by the World Health Organization (WHO) and represent the most comprehensive source of health spending information. This script uses only highly aggregated GHED indicators, which should consist of non-imputed data reported directly by countries. It's worth noting that:
+The [Global Health Expenditure Database (GHED)](https://apps.who.int/nha/database) data used in this script are compiled by the World Health Organization (WHO) and represent the most comprehensive source of health spending information. This script uses only highly aggregated GHED indicators, which should consist of non-imputed data reported directly by countries. It's worth noting that:
 
 - Data are collected through National Health Accounts (NHA) frameworks that countries report to WHO
 - The aggregated indicators used in this script represent the most reliable portion of GHED data
@@ -220,9 +220,9 @@ While GHED represents the global standard for health expenditure data, users sho
 
 ### World Bank PPP and GDP Data
 
-The World Bank data on Purchasing Power Parity (PPP) conversion factors and GDP used in this script come with several considerations:
+The [World Bank data](https://data.worldbank.org/) on Purchasing Power Parity (PPP) conversion factors and GDP used in this script come with several considerations:
 
-- PPP conversion factors are derived from the International Comparison Program (ICP), which conducts comprehensive price surveys only periodically (typically every 6 years)
+- PPP conversion factors are derived from the [International Comparison Program (ICP)](https://www.worldbank.org/en/programs/icp), which conducts comprehensive price surveys only periodically (typically every 6 years)
 - Values for non-benchmark years are estimated through extrapolation and modeling
 - GDP deflators reflect countries' own national accounting practices, which may vary in methodology
 - Data revisions are common as countries update their national accounts
@@ -289,6 +289,7 @@ The generated dataset includes the following key variables:
 - `PvtHE_per_Std_Capita_Constant_ConstantPPP`: Private health expenditure per standardized capita (constant reference year LCU converted to international $ using reference year PPP factors)
 
 ### Other Metrics
+- `Indicator_Notes`: Additional information about the data and calculations
 - `GDP_Deflator`: GDP deflator factor (base: reference year)
 - `PPP_Factor`: Current PPP conversion factor (LCU per international $)
 
@@ -308,4 +309,4 @@ If you use this tool in your research, please cite:
 
 ## Contact
 
-Contact me at dtsj89@gmail.com if you have any questions or problems with the script or data used in it.
+Contact me at [dtsj89@gmail.com](mailto:dtsj89@gmail.com) if you have any questions or problems with the script or data used in it.
