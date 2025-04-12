@@ -19,7 +19,6 @@ The script standardizes health expenditure measurement across countries by apply
 - **Missing data handling**: Optional imputation for missing PPP and GDP deflator values
 - **Country name standardization**: Harmonizes country names across different datasets
 - **Comprehensive reporting**: Generates detailed output with imputation documentation and data dictionary
-- **Performance optimization**: Includes GHED data converter for faster processing of large datasets
 
 ## Requirements
 
@@ -54,7 +53,6 @@ The script standardizes health expenditure measurement across countries by apply
    ```
    python ghed_to_csv.py
    ```
-   This significantly improves loading performance with large GHED datasets
 
 ## Usage
 
