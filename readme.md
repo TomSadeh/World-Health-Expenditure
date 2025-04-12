@@ -30,9 +30,9 @@ The script standardizes health expenditure measurement across countries by apply
 ### Required Data Files
 - [`GHED_data_2025.xlsx`](https://apps.who.int/nha/database/Select/Indicators/en): Health expenditure data from the Global Health Expenditure Database
   - *Note: Can be converted to optimized CSV format using the included `ghed_to_csv.py` script*
-- `male_pop.csv`: Male population data by age groups from [World Population Prospects](https://population.un.org/wpp/Download/Standard/Population/)
-- `female_pop.csv`: Female population data by age groups from [World Population Prospects](https://population.un.org/wpp/Download/Standard/Population/)
-- `cap.csv`: Capitation formula weights by age group (contains Israeli, LTC, and EU27 formulas)
+- `male_pop.csv`: Male population data by age groups from [World Population Prospects]([https://population.un.org/wpp/Download/Standard/Population/](https://population.un.org/wpp/downloads?folder=Standard%20Projections&group=Population))
+- `female_pop.csv`: Female population data by age groups from [World Population Prospects]([https://population.un.org/wpp/Download/Standard/Population/](https://population.un.org/wpp/downloads?folder=Standard%20Projections&group=Population))
+- `cap.csv`: Capitation formula weights by age group (contains [Israeli, LTC, and EU27](https://www.vanleer.org.il/publication/%D7%A4%D7%A8%D7%95%D7%A4%D7%99%D7%9C-%D7%94%D7%94%D7%95%D7%A6%D7%90%D7%94-%D7%A2%D7%9C-%D7%91%D7%A8%D7%99%D7%90%D7%95%D7%AA-%D7%9C%D7%A4%D7%99-%D7%92%D7%99%D7%9C-%D7%91%D7%99%D7%A9%D7%A8%D7%90%D7%9C/?srsltid=AfmBOorjRFieKHPNqKyBDLDM0skWxiwie2ekM_DKqJxnVG2Y2txzRTsf) formulas)
 - [`API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`](https://data.worldbank.org/indicator/PA.NUS.PPP): World Bank PPP conversion factors
 - GDP data files (required for constant price calculations):
   - [`API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`](https://data.worldbank.org/indicator/NY.GDP.MKTP.CN): GDP in current LCU
