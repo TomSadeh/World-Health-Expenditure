@@ -390,18 +390,8 @@ Contributions to improve the World Health Expenditure tool are welcome. Here's h
 - Include detailed steps to reproduce any bugs
 - Mention your operating system and Python version
 
-### Development Process
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests for new functionality if applicable
-5. Update documentation to reflect your changes
-6. Commit your changes (`git commit -m 'Add some amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
 ### Pull Request Guidelines
-- Ensure your code follows the existing style
+- Ensure your code follows the existing bad style of mine
 - Include comments in your code where necessary
 - Update the README.md with details of changes if applicable
 - The PR should work on Python 3.8 or higher
