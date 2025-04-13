@@ -39,6 +39,5 @@ PubHE_Constant_ConstantPPP,Public health expenditure in constant 2017 LCU conver
 PubHE_per_Std_Capita_Constant_ConstantPPP,Public health expenditure per standardized capita (constant 2017 LCU converted to international $ using 2017 PPP factors)
 PvtHE_Constant_ConstantPPP,Private health expenditure in constant 2017 LCU converted to international $ using 2017 PPP factors
 PvtHE_per_Std_Capita_Constant_ConstantPPP,Private health expenditure per standardized capita (constant 2017 LCU converted to international $ using 2017 PPP factors)
-Indicator_Notes,Additional information about the data and calculations
 GDP_Deflator,GDP deflator factor (base: reference year)
 PPP_Factor,Current PPP conversion factor (LCU per international $)

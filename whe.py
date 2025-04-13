@@ -15,13 +15,21 @@ Required files:
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import regex as re
+import logging
+import sys
+from datetime import datetime
 
 # Define paths
 current_path = Path(".")
 data_path = current_path / "data"  # Create path to data folder
 export_path = Path("Standardized_Expenditure")
 export_path.mkdir(parents=True, exist_ok=True)
+log_path = export_path / "logs"
+log_path.mkdir(parents=True, exist_ok=True)
 
+# Reference year for constant price calculations and PPP adjustment
+REFERENCE_YEAR = 2017
 
 # Israeli Capitation Formula weights by age group
 # If you have a cap.csv file, we'll load it, otherwise we'll use these default values
@@ -39,10 +47,57 @@ ISRAELI_CAPITATION = {
     "85 and over": {"Men": 3.64, "Women": 2.7}
 }
 
-# Reference year for constant price calculations and PPP adjustment
-REFERENCE_YEAR = 2017
-BASE_COUNTRY = "United States"  # Base country for PPP comparisons
+# Configure logging
+def setup_logging(console_level=logging.INFO, file_level=logging.DEBUG, log_file=None):
+    """
+    Set up logging to both console and file.
+    
+    Args:
+        console_level: Logging level for console output (default: INFO)
+        file_level: Logging level for file output (default: DEBUG)
+        log_file: Path to log file (default: None, which creates a timestamped file)
+    
+    Returns:
+        Logger object
+    """
+    # Create a logger
+    logger = logging.getLogger("whe")
+    logger.setLevel(logging.DEBUG)  # Set logger to capture all levels
+    
+    # Create formatter
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    simple_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(console_level)
+    console_handler.setFormatter(simple_formatter)
+    
+    # Create file handler if needed
+    if log_file is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_path / f"whe_analysis_{timestamp}.log"
+    
+    file_handler = logging.FileHandler(log_file, mode='w')
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(detailed_formatter)
+    
+    # Add handlers to logger
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+    
+    # Log the configuration
+    logger.info(f"Logging initialized. Log file: {log_file}")
+    logger.debug(f"Console log level: {logging.getLevelName(console_level)}")
+    logger.debug(f"File log level: {logging.getLevelName(file_level)}")
+    
+    return logger
 
+# Global logger
+logger = setup_logging()
 
 def load_capitation_weights(formula='israeli'):
     """
@@ -52,209 +107,249 @@ def load_capitation_weights(formula='israeli'):
         formula: The capitation formula to use ('israeli', 'ltc', or 'eu27')
     
     Returns:
-        Dictionary of capitation weights
+        Tuple of (capitation_weights_dictionary, formula_type_used)
     """
+    # Define mapping of formula types to column names and structure
+    formula_config = {
+        'israeli': {'columns': ['Men', 'Women'], 'structure': 'separate'},
+        'ltc': {'columns': ['LTC'], 'structure': 'combined'},
+        'eu27': {'columns': ['EU27'], 'structure': 'combined'}
+    }
+    
+    # Check if formula is valid
+    if formula not in formula_config:
+        logger.warning(f"Unknown formula '{formula}', using default Israeli capitation weights")
+        return ISRAELI_CAPITATION, 'israeli'
+    
     try:
         cap_df = pd.read_csv(data_path / "cap.csv", index_col="Age")
         
-        if formula == 'israeli':
-            # Convert to dictionary format for Israeli formula (men/women separate)
-            cap_dict = {}
+        # Get the configuration for the requested formula
+        config = formula_config[formula]
+        
+        # Check if all required columns exist
+        if not all(col in cap_df.columns for col in config['columns']):
+            raise KeyError(f"Missing columns for {formula} formula")
+        
+        cap_dict = {}
+        
+        # Process based on structure type
+        if config['structure'] == 'separate':
             for age_group in cap_df.index:
                 cap_dict[age_group] = {
                     "Men": cap_df.loc[age_group, "Men"],
                     "Women": cap_df.loc[age_group, "Women"]
                 }
-            print(f"Loaded Israeli capitation weights from cap.csv")
-            return cap_dict, 'israeli'
-        
-        elif formula == 'ltc':
-            # Convert to dictionary format for LTC formula (combined)
-            cap_dict = {}
+        else:  # combined structure
+            column_name = config['columns'][0]
             for age_group in cap_df.index:
                 cap_dict[age_group] = {
-                    "Combined": cap_df.loc[age_group, "LTC"]
+                    "Combined": cap_df.loc[age_group, column_name]
                 }
-            print(f"Loaded LTC capitation weights from cap.csv")
-            return cap_dict, 'ltc'
         
-        elif formula == 'eu27':
-            # Convert to dictionary format for EU27 formula (combined)
-            cap_dict = {}
-            for age_group in cap_df.index:
-                cap_dict[age_group] = {
-                    "Combined": cap_df.loc[age_group, "EU27"]
-                }
-            print(f"Loaded EU27 capitation weights from cap.csv")
-            return cap_dict, 'eu27'
+        logger.info(f"Loaded {formula} capitation weights from cap.csv")
+        return cap_dict, formula
         
-        else:
-            print(f"Unknown formula '{formula}', using default Israeli capitation weights")
-            return ISRAELI_CAPITATION, 'israeli'
-    
-    except FileNotFoundError:
-        print("cap.csv not found, using default Israeli capitation weights")
+    except (FileNotFoundError, KeyError) as e:
+        error_type = "File not found" if isinstance(e, FileNotFoundError) else f"Missing column: {e}"
+        logger.warning(f"Error loading capitation weights: {error_type}")
+        logger.warning("Using default Israeli capitation weights")
         return ISRAELI_CAPITATION, 'israeli'
-    
-    except KeyError as e:
-        print(f"Error loading capitation weights: Missing column {e} in cap.csv")
-        print("Using default Israeli capitation weights")
-        return ISRAELI_CAPITATION, 'israeli'
-
 
 def load_ppp_data():
     """
     Load and process World Bank PPP data.
     
     Returns:
-        DataFrame with columns: ISO3, Year, PPP_Factor
+        DataFrame with columns: ISO3, Country, Year, PPP_Factor
     """
-    print("Loading PPP data...")
+    logger.info("Loading PPP data...")
+    
+    # Define empty result DataFrame for fallback
+    empty_result = pd.DataFrame(columns=["ISO3", "Country", "Year", "PPP_Factor"])
     
     try:
         # Read the PPP data file
         ppp_file = "API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv"
         
-        # Load the CSV file, skipping the metadata rows
-        ppp_df = pd.read_csv(data_path / ppp_file)
-        
-        # Process to create year-country pairs with PPP values
-        ppp_data = []
+        # Load the CSV file - we need to set dtype=None to detect numeric columns correctly
+        try:
+            ppp_df = pd.read_csv(data_path / ppp_file, dtype=None)
+            logger.debug(f"Successfully loaded PPP file with shape: {ppp_df.shape}")
+        except Exception as e:
+            logger.error(f"Error loading PPP file: {e}")
+            return empty_result
         
         # Get year columns (exclude metadata columns)
-        year_columns = [col for col in ppp_df.columns if col.isdigit()]
+        year_columns = [col for col in ppp_df.columns if str(col).isdigit()]
         
-        # Process each row
-        for _, row in ppp_df.iterrows():
+        if not year_columns:
+            logger.warning("No year columns found in PPP data")
+            return empty_result
+            
+        logger.debug(f"Found {len(year_columns)} year columns from {min(year_columns)} to {max(year_columns)}")
+        
+        # Filter for PPP conversion factor rows
+        ppp_indicator = "PPP conversion factor, GDP (LCU per international $)"
+        filtered_df = ppp_df[ppp_df['Indicator Name'].str.contains(ppp_indicator, na=False, regex=False)]
+        
+        if filtered_df.empty:
+            logger.warning(f"No rows with '{ppp_indicator}' found in the data")
+            return empty_result
+            
+        logger.debug(f"Found {len(filtered_df)} rows with PPP conversion factor data")
+        
+        # Filter out aggregates (regions, income groups, etc.)
+        region_terms = ['region', 'world', 'income', 'development']
+        region_pattern = '|'.join(region_terms)
+        filtered_df = filtered_df[~filtered_df['Country Name'].str.lower().str.contains(region_pattern, na=False)]
+        
+        logger.debug(f"After filtering out regions, {len(filtered_df)} country rows remain")
+        
+        # Convert to long format - need to handle both string and numeric columns
+        ppp_data = []
+        
+        for _, row in filtered_df.iterrows():
             country = row['Country Name']
             country_code = row['Country Code']  # This is the ISO3 code in World Bank data
-            indicator = row['Indicator Name']
             
-            # Check if this is a PPP row
-            if "PPP conversion factor, GDP (LCU per international $)" not in indicator:
-                continue
-                
-            # Skip aggregate regions
-            if any(x in country.lower() for x in ['region', 'world', 'income', 'development']):
-                continue
-                
-            # Extract PPP values for each year
+            # Process each year column
             for year in year_columns:
-                if pd.notna(row[year]) and row[year] != 0:
-                    try:
-                        ppp_value = float(row[year])
-                        ppp_data.append({
-                            "Country": country,  # Keep country name for reference
-                            "ISO3": country_code,  # Use ISO3 code for merging
-                            "Year": int(year),
-                            "PPP_Factor": ppp_value
-                        })
-                    except (ValueError, TypeError):
-                        # Skip values that can't be converted to float
-                        pass
+                # Skip missing or zero values
+                if pd.isna(row[year]) or row[year] == 0:
+                    continue
+                    
+                try:
+                    # Convert to numeric, handling both string and float columns
+                    ppp_value = pd.to_numeric(row[year], errors='coerce')
+                    if pd.isna(ppp_value) or ppp_value <= 0:
+                        continue
+                        
+                    ppp_data.append({
+                        "Country": country,  # Keep country name for reference
+                        "ISO3": country_code,  # Use ISO3 code for merging
+                        "Year": int(year),
+                        "PPP_Factor": ppp_value
+                    })
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Error processing {country} ({country_code}) for year {year}: {e}")
+                    # Skip values that can't be converted
+                    continue
         
         # Convert to DataFrame
         result = pd.DataFrame(ppp_data)
         
         if result.empty:
-            print("Warning: No PPP data was successfully parsed")
-            return pd.DataFrame(columns=["ISO3", "Country", "Year", "PPP_Factor"])
+            logger.warning("No PPP data was successfully parsed")
+            return empty_result
         
-        print(f"Loaded PPP data with shape: {result.shape}")
+        # Sort by Country, Year for better organization
+        result = result.sort_values(['ISO3', 'Year'])
+        
+        logger.info(f"Loaded PPP data with shape: {result.shape}")
+        logger.info(f"Data covers {result['ISO3'].nunique()} countries and years {result['Year'].min()}-{result['Year'].max()}")
+        
+        # Log a sample for verification
+        logger.debug("\nSample of processed PPP data:")
+        logger.debug(result.head())
         
         return result
     
     except Exception as e:
-        print(f"Error loading PPP data: {e}")
+        logger.error(f"Error loading PPP data: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         
         # Return empty DataFrame as fallback
-        return pd.DataFrame(columns=["ISO3", "Country", "Year", "PPP_Factor"])
-
+        return empty_result
 
 def load_ghed_data():
     """
     Load and process GHED data from the optimized CSV file.
     Falls back to Excel if the CSV file is not available.
+    
+    Returns:
+        DataFrame with GHED data containing columns: location, ISO3, year, che,
+        and potentially public_expenditure and private_expenditure
     """
-    print("Loading GHED data...")
+    logger.info("Loading GHED data...")
+    
+    # Define column specifications
+    required_cols = ['location', 'code', 'year', 'che']
+    recommended_cols = ['gghed_che', 'pvtd_che']
+    
     try:
         # First try to load the optimized CSV file
         csv_path = data_path / "processed" / "ghed_data_optimized.csv"
         
         if csv_path.exists():
-
-            # Read the optimized CSV data
             ghed_data = pd.read_csv(csv_path)
-            
-
+            logger.info("Loaded optimized CSV file")
         else:
-            print("Optimized CSV not found, loading from Excel (slower)...")
-            print("Consider running the GHED conversion script to create an optimized CSV for faster loading.")
+            logger.info("Optimized CSV not found, loading from Excel (slower)...")
+            logger.info("Consider running the GHED conversion script to create an optimized CSV for faster loading.")
             
-            # Read the GHED data from Excel
-            ghed_data = pd.read_excel(data_path / "GHED_data_2025.xlsx", sheet_name="Data")
-            
-            # Check if the required columns exist
-            required_cols = ['location', 'code', 'year', 'che']
-            recommended_cols = ['gghed_che', 'pvtd_che']
-            
-            # Verify required columns
-            missing_required = [col for col in required_cols if col not in ghed_data.columns]
-            if missing_required:
-                raise ValueError(f"Required columns missing from GHED data: {missing_required}")
-            
-            # Check for recommended columns
-            missing_recommended = [col for col in recommended_cols if col not in ghed_data.columns]
-            if missing_recommended:
-                print(f"Warning: Recommended columns missing: {missing_recommended}")
-            
-            # Calculate public and private expenditure if percentages are available
-            if 'gghed_che' in ghed_data.columns:
-                ghed_data['public_expenditure'] = ghed_data['che'] * (ghed_data['gghed_che'] / 100)
-            else:
-                ghed_data['public_expenditure'] = None
-                
-            if 'pvtd_che' in ghed_data.columns:
-                ghed_data['private_expenditure'] = ghed_data['che'] * (ghed_data['pvtd_che'] / 100)
-            else:
-                ghed_data['private_expenditure'] = None
-            
+            # Load from Excel and process
+            ghed_data = _process_excel_ghed_data(required_cols, recommended_cols)
         
-        # Common processing regardless of source
+        # Apply common processing to the data
+        return _process_ghed_data(ghed_data)
         
-        # Adjust the numbers to be actual counts and not in millions
-        ghed_data['che'] *= 10**6
-        
-        if 'public_expenditure' in ghed_data.columns:
-            ghed_data['public_expenditure'] *= 10**6
-            
-        if 'private_expenditure' in ghed_data.columns:
-            ghed_data['private_expenditure'] *= 10**6
-        
-        # Select relevant columns
-        relevant_cols = ['location', 'code', 'year', 'che', 'public_expenditure', 'private_expenditure']
-        ghed_data = ghed_data[[col for col in relevant_cols if col in ghed_data.columns]]
-        
-        # Remove rows with missing expenditure data
-        ghed_data = ghed_data.dropna(subset=['che'])
-        
-        # Ensure year is an integer
-        ghed_data['year'] = ghed_data['year'].astype(int)
-        
-        # Rename the ISO3 column to maintain consistency
-        ghed_data = ghed_data.rename(columns={'code': 'ISO3'})
-        
-        print(f"Loaded GHED data with shape: {ghed_data.shape}")
-        return ghed_data
-    
     except Exception as e:
-        print(f"Error loading GHED data: {e}")
+        logger.error(f"Error loading GHED data: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         raise
 
+def _process_excel_ghed_data(required_cols, recommended_cols):
+    """Helper function to load and process GHED data from Excel"""
+    # Read the GHED data from Excel
+    ghed_data = pd.read_excel(data_path / "GHED_data_2025.xlsx", sheet_name="Data")
+    
+    # Verify required columns
+    missing_required = [col for col in required_cols if col not in ghed_data.columns]
+    if missing_required:
+        raise ValueError(f"Required columns missing from GHED data: {missing_required}")
+    
+    # Check for recommended columns
+    missing_recommended = [col for col in recommended_cols if col not in ghed_data.columns]
+    if missing_recommended:
+        logger.warning(f"Recommended columns missing: {missing_recommended}")
+    
+    # Calculate derived columns from percentages
+    if 'gghed_che' in ghed_data.columns:
+        ghed_data['public_expenditure'] = ghed_data['che'] * (ghed_data['gghed_che'] / 100)
+    else:
+        ghed_data['public_expenditure'] = None
+        
+    if 'pvtd_che' in ghed_data.columns:
+        ghed_data['private_expenditure'] = ghed_data['che'] * (ghed_data['pvtd_che'] / 100)
+    else:
+        ghed_data['private_expenditure'] = None
+    
+    return ghed_data
+
+def _process_ghed_data(ghed_data):
+    """Apply common processing to GHED data regardless of source"""
+    # Convert values from millions to actual amounts
+    for col in ['che', 'public_expenditure', 'private_expenditure']:
+        if col in ghed_data.columns:
+            ghed_data[col] = ghed_data[col] * (10**6)
+    
+    # Select relevant columns
+    relevant_cols = ['location', 'code', 'year', 'che', 'public_expenditure', 'private_expenditure']
+    existing_cols = [col for col in relevant_cols if col in ghed_data.columns]
+    ghed_data = ghed_data[existing_cols]
+    
+    # Data cleaning
+    ghed_data = (ghed_data
+                .dropna(subset=['che'])           # Remove rows with missing expenditure
+                .astype({'year': int})            # Ensure year is integer
+                .rename(columns={'code': 'ISO3'}) # Standardize column names
+               )
+    
+    logger.info(f"Loaded GHED data with shape: {ghed_data.shape}")
+    return ghed_data
 
 def load_population_data():
     """
@@ -263,57 +358,58 @@ def load_population_data():
     Returns:
         Tuple of (male_pop, female_pop) DataFrames with processed population data.
     """
-    print("Loading population data...")
+    logger.info("Loading population data...")
+    # Define the fallback empty DataFrame structure
+    columns = ["ISO3", "Year", "Age_Group", "Sex", "Population", "Country"]
+    empty_df = pd.DataFrame(columns=columns)
+    
     try:
         # Load male and female population data from CSV files
-        male_pop_raw = pd.read_csv(data_path / "male_pop.csv")
-        female_pop_raw = pd.read_csv(data_path / "female_pop.csv")
+        files = {
+            "Men": "male_pop.csv",
+            "Women": "female_pop.csv"
+        }
         
-        print(f"Male population raw data shape: {male_pop_raw.shape}")
-        print(f"Female population raw data shape: {female_pop_raw.shape}")
+        # Load and validate data
+        datasets = {}
+        for sex, filename in files.items():
+            try:
+                df = pd.read_csv(data_path / filename)
+                if 'ISO3 Alpha-code' not in df.columns:
+                    logger.warning(f"ISO3 Alpha-code column not found in {filename}")
+                    continue
+                logger.debug(f"{sex} population raw data shape: {df.shape}")
+                datasets[sex] = df
+            except Exception as file_error:
+                logger.error(f"Error loading {filename}: {file_error}")
         
-        # Check if ISO3 code column exists
-        if 'ISO3 Alpha-code' not in male_pop_raw.columns or 'ISO3 Alpha-code' not in female_pop_raw.columns:
-            raise ValueError("ISO3 Alpha-code column not found in population data")
+        # Check if we have both datasets
+        if "Men" not in datasets or "Women" not in datasets:
+            logger.error("Could not load one or both population datasets")
+            return empty_df, empty_df
         
-        # Process both datasets using the vectorized function
-        male_pop = process_population_dataset(male_pop_raw, sex="Men")
-        female_pop = process_population_dataset(female_pop_raw, sex="Women")
+        # Process datasets
+        processed_data = {}
+        for sex, df in datasets.items():
+            processed_data[sex] = process_population_dataset(df, sex)
         
-        # Create a standardized ISO3 to country mapping
-        iso3_to_country = create_standardized_country_mapping(male_pop, female_pop)
+        # Create mapping and standardize country names
+        iso3_to_country = create_standardized_country_mapping(
+            processed_data["Men"], processed_data["Women"]
+        )
         
-        # Apply the standardized country names
-        male_pop['Country'] = male_pop['ISO3'].map(iso3_to_country)
-        female_pop['Country'] = female_pop['ISO3'].map(iso3_to_country)
+        # Apply mapping to both datasets
+        for sex, df in processed_data.items():
+            df['Country'] = df['ISO3'].map(iso3_to_country).fillna(df['ISO3'])
+    
         
-        # Fill any missing country names with the ISO3 code
-        male_pop['Country'] = male_pop['Country'].fillna(male_pop['ISO3'])
-        female_pop['Country'] = female_pop['Country'].fillna(female_pop['ISO3'])
-        
-        print(f"Processed male population data with shape: {male_pop.shape}")
-        print(f"Processed female population data with shape: {female_pop.shape}")
-        
-        # Print sample of processed data
-        if not male_pop.empty:
-            print("\nProcessed male population sample:")
-            print(male_pop.head())
-        
-        if not female_pop.empty:
-            print("\nProcessed female population sample:")
-            print(female_pop.head())
-        
-        return male_pop, female_pop
+        return processed_data["Men"], processed_data["Women"]
     
     except Exception as e:
-        print(f"Error loading population data: {e}")
-        print("Detailed error information:")
+        logger.error(f"Error loading population data: {e}")
+        logger.error("Detailed error information:")
         import traceback
-        traceback.print_exc()
-        
-        # Create empty DataFrames with the correct structure as a fallback
-        columns = ["ISO3", "Year", "Age_Group", "Sex", "Population", "Country"]
-        empty_df = pd.DataFrame(columns=columns)
+        logger.error(traceback.format_exc())
         return empty_df, empty_df
 
 def create_standardized_country_mapping(male_pop, female_pop):
@@ -330,43 +426,22 @@ def create_standardized_country_mapping(male_pop, female_pop):
     """
     iso3_to_country = {}
     
-    # First collect all country names from male population data
-    if 'ISO3' in male_pop.columns and 'Country' in male_pop.columns:
-        male_mapping = male_pop.drop_duplicates('ISO3').set_index('ISO3')['Country'].to_dict()
-        iso3_to_country.update(male_mapping)
+    # Process both datasets and merge mappings
+    for df, label in [(male_pop, "male"), (female_pop, "female")]:
+        if df.empty or 'ISO3' not in df.columns or 'Country' not in df.columns:
+            logger.warning(f"Cannot extract country mapping from {label} dataset")
+            continue
+            
+        # Extract unique ISO3 to country mappings
+        mapping = df.drop_duplicates('ISO3').set_index('ISO3')['Country'].to_dict()
+        
+        # Add new mappings (don't overwrite existing ones)
+        for iso3, country in mapping.items():
+            if iso3 not in iso3_to_country and pd.notna(country):
+                iso3_to_country[iso3] = country
     
-    # Then add any missing ones from female population data
-    if 'ISO3' in female_pop.columns and 'Country' in female_pop.columns:
-        # Only add countries not already in the mapping
-        for iso3, group in female_pop.groupby('ISO3'):
-            if iso3 not in iso3_to_country and not group.empty:
-                iso3_to_country[iso3] = group['Country'].iloc[0]
-    
-    print(f"Created standardized country mapping with {len(iso3_to_country)} ISO3 codes")
-    
+    logger.info(f"Created standardized country mapping with {len(iso3_to_country)} ISO3 codes")
     return iso3_to_country
-
-def standardize_country_names_by_iso3(df, iso3_to_country):
-    """
-    Apply standardized country names based on ISO3 codes.
-    
-    Args:
-        df: DataFrame with ISO3 and potentially inconsistent Country columns
-        iso3_to_country: Dictionary mapping ISO3 codes to standardized country names
-        
-    Returns:
-        DataFrame with standardized country names
-    """
-    if df.empty:
-        return df
-        
-    # Create a copy to avoid modifying the original
-    result = df.copy()
-    
-    # Replace Country values with standardized names from the mapping
-    result['Country'] = result['ISO3'].map(iso3_to_country)
-    
-    return result
 
 def process_population_dataset(pop_df, sex):
     """
@@ -379,68 +454,112 @@ def process_population_dataset(pop_df, sex):
     Returns:
         DataFrame with processed population data
     """
-    print(f"Processing {sex.lower()} population data...")
+    logger.info(f"Processing {sex.lower()} population data...")
     
-    # Get the age group columns
+    # Define the structure of the empty result DataFrame
+    result_columns = ["ISO3", "Year", "Age_Group", "Sex", "Population", "Country"]
+    empty_result = pd.DataFrame(columns=result_columns)
+    
+    # Check if the dataframe is empty
+    if pop_df.empty:
+        logger.warning(f"Empty {sex.lower()} population data provided")
+        return empty_result
+    
+    # Get the age group columns - use exact column names from the provided CSV info
     age_columns = ['0-4', '5-9', '10-14', '15-19', '20-24', '25-29', '30-34', 
-                  '35-39', '40-44', '45-49', '50-54', '55-59', '60-64',
-                  '65-69', '70-74', '75-79', '80-84', '85-89', '90-94', '95-99', '100+']
+                   '35-39', '40-44', '45-49', '50-54', '55-59', '60-64', 
+                   '65-69', '70-74', '75-79', '80-84', '85-89', '90-94', '95-99', '100+']
     
-    # Filter out non-country rows and rows with missing ISO3 or year
-    valid_mask = (
+    # Make sure these columns exist in the dataframe
+    age_columns = [col for col in age_columns if col in pop_df.columns]
+    
+    if not age_columns:
+        logger.warning(f"No age group columns found in {sex} population data")
+        return empty_result
+    
+    # Filter out non-country rows
+    # 1. Must have valid ISO3 code
+    # 2. Must have valid Year
+    # 3. Must not be a region or aggregate
+    region_terms = ['region', 'world', 'income', 'development', 'more developed', 'less developed']
+    
+    # Make sure the filter columns exist
+    if 'ISO3 Alpha-code' not in pop_df.columns:
+        logger.warning(f"'ISO3 Alpha-code' column not found in {sex} population data")
+        return empty_result
+    
+    if 'Year' not in pop_df.columns:
+        logger.warning(f"'Year' column not found in {sex} population data")
+        return empty_result
+    
+    if 'Region, subregion, country or area *' not in pop_df.columns:
+        logger.warning(f"'Region, subregion, country or area *' column not found in {sex} population data")
+        return empty_result
+    
+    # Apply the filter
+    filter_conditions = (
         pop_df['ISO3 Alpha-code'].notna() & 
         pop_df['Year'].notna() & 
-        pop_df['ISO3 Alpha-code'].astype(str).str.len() > 0
+        ~pop_df['Region, subregion, country or area *'].str.lower().str.contains('|'.join(region_terms), na=False, regex=True)
     )
     
-    # Filter out regions and aggregates
-    region_terms = ['region', 'world', 'income', 'development', 'more developed', 'less developed']
-    region_pattern = '|'.join(region_terms)
-    country_mask = ~pop_df['Region, subregion, country or area *'].str.lower().str.contains(region_pattern, na=False)
-    
-    # Combine masks
-    filtered_df = pop_df[valid_mask & country_mask].copy()
+    filtered_df = pop_df[filter_conditions].copy()
     
     if filtered_df.empty:
-        print(f"Warning: No valid {sex.lower()} population data after filtering")
-        return pd.DataFrame(columns=["ISO3", "Year", "Age_Group", "Sex", "Population", "Country"])
+        logger.warning(f"No valid {sex.lower()} population data after filtering")
+        return empty_result
+    
+    # Standardize column names
+    filtered_df = filtered_df.rename(columns={
+        'ISO3 Alpha-code': 'ISO3',
+        'Region, subregion, country or area *': 'Country'
+    })
     
     # Ensure ISO3 and Year are proper types
-    filtered_df['ISO3'] = filtered_df['ISO3 Alpha-code'].astype(str)
-    filtered_df['Year'] = filtered_df['Year'].astype(int)
-    filtered_df['Country'] = filtered_df['Region, subregion, country or area *']
+    filtered_df['ISO3'] = filtered_df['ISO3'].astype(str)
+    filtered_df['Year'] = pd.to_numeric(filtered_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    # Create a list to store the processed data for each age group
-    processed_dfs = []
+    # Process age groups using a more efficient approach
+    age_group_dfs = []
     
     for age_col in age_columns:
-        # Create a subset for this age group
+        # Map the UN age group to our standardized age group
+        mapped_age_group = map_age_group(age_col)
+        
+        if mapped_age_group is None:
+            logger.debug(f"Could not map age group '{age_col}' to a capitation age group")
+            continue
+            
+        # Create a subset with only the needed columns for this age group
         age_df = filtered_df[['ISO3', 'Year', 'Country', age_col]].copy()
         
-        # Skip age groups with all missing values
-        if age_df[age_col].isna().all():
+        # Check if the age column exists and has valid data
+        if age_col not in age_df.columns:
+            logger.debug(f"Age column '{age_col}' not found in dataframe")
             continue
         
-        # Drop rows with missing population values
+        # Drop rows with missing/invalid population values 
         age_df = age_df.dropna(subset=[age_col])
         
-        # Convert population values to numeric
-        age_df['Population'] = pd.to_numeric(age_df[age_col].astype(str).str.replace(' ', ''), errors='coerce')
+        # Convert population values to numeric, handling different formats
+        try:
+            # Try to convert directly first
+            age_df['Population'] = pd.to_numeric(age_df[age_col], errors='coerce')
+        except:
+            # If that fails, try removing spaces and then converting
+            age_df['Population'] = pd.to_numeric(
+                age_df[age_col].astype(str).str.replace(' ', ''), 
+                errors='coerce'
+            )
         
-        # Drop rows with invalid population values
+        # Keep only rows with positive population values
         age_df = age_df[age_df['Population'] > 0]
         
         if age_df.empty:
             continue
         
-        # Convert population from thousands to actual counts
-        age_df['Population'] = age_df['Population'] * 1000
-        
-        # Map age group
-        mapped_age_group = map_age_group(age_col)
-        
-        if mapped_age_group is None:
-            continue
+        # Convert from thousands to actual counts (if necessary)
+        age_df['Population'] *= 1000
         
         # Add age group and sex columns
         age_df['Age_Group'] = mapped_age_group
@@ -449,62 +568,26 @@ def process_population_dataset(pop_df, sex):
         # Select only the needed columns
         age_df = age_df[['ISO3', 'Year', 'Age_Group', 'Sex', 'Population', 'Country']]
         
-        # Add to the list of processed dataframes
-        processed_dfs.append(age_df)
-    
-    # If no age groups were processed, return an empty DataFrame
-    if not processed_dfs:
-        print(f"Warning: No valid {sex.lower()} population data after processing age groups")
-        return pd.DataFrame(columns=["ISO3", "Year", "Age_Group", "Sex", "Population", "Country"])
+        # Add to the list
+        age_group_dfs.append(age_df)
     
     # Combine all age group dataframes
-    combined_df = pd.concat(processed_dfs, ignore_index=True)
+    if not age_group_dfs:
+        logger.warning(f"No valid {sex.lower()} population data after processing age groups")
+        return empty_result
+        
+    combined_df = pd.concat(age_group_dfs, ignore_index=True)
     
     # Group by to sum populations for the same ISO3, Year, Age_Group, Sex
-    result_df = combined_df.groupby(['ISO3', 'Year', 'Age_Group', 'Sex']).agg({
+    result_df = combined_df.groupby(['ISO3', 'Year', 'Age_Group', 'Sex'], as_index=False).agg({
         'Population': 'sum',
         'Country': 'first'  # Take the first country name
-    }).reset_index()
+    })
     
-    print(f"Processed {len(result_df)} rows of {sex.lower()} population data")
+    logger.info(f"Processed {len(result_df)} rows of {sex.lower()} population data")
+    logger.info(f"Data covers {result_df['ISO3'].nunique()} countries and years {result_df['Year'].min()}-{result_df['Year'].max()}")
     
     return result_df
-
-
-def is_region_or_aggregate(country_name):
-    """
-    Check if a country name represents a region or aggregate.
-    
-    Args:
-        country_name: String with country name to check
-    
-    Returns:
-        Boolean indicating if the country is a region or aggregate
-    """
-    region_terms = ['region', 'world', 'income', 'development', 'more developed', 'less developed']
-    return any(term in country_name.lower() for term in region_terms)
-
-
-def extract_population_value(pop_value):
-    """
-    Extract a numeric population value from a cell value.
-    
-    Args:
-        pop_value: Cell value from CSV (could be string or numeric)
-    
-    Returns:
-        Numeric population value
-    """
-    try:
-        if isinstance(pop_value, str):
-            # Remove spaces and convert to numeric
-            population_str = pop_value.replace(' ', '')
-            return pd.to_numeric(population_str, errors='coerce')
-        else:
-            # Convert to numeric (it might be already numeric)
-            return pd.to_numeric(pop_value, errors='coerce')
-    except Exception:
-        return np.nan
 
 def map_age_group(un_age_group):
     """
@@ -516,62 +599,235 @@ def map_age_group(un_age_group):
     Returns:
         Mapped age group or None if it couldn't be mapped
     """
-    # Extract age range from the age group string
-    if isinstance(un_age_group, str):
-        un_age_group = un_age_group.strip().lower()
-    else:
-        return None
-    
-    # Map UN age groups to our capitation formula age groups
+    # Define the mapping from UN age groups to capitation age groups
     mapping = {
-        # Map 0-4 to the capitation's 0 to 4
+        # 0-4 -> 0 to 4
         "0-4": "0 to 4",
         
-        # Map 5-9 and 10-14 to the capitation's 5 to 14
-        "5-9": "5 to 14",
-        "10-14": "5 to 14",
+        # 5-9, 10-14 -> 5 to 14
+        "5-9": "5 to 14", "10-14": "5 to 14",
         
-        # Map 15-19 and 20-24 to the capitation's 15 to 24
-        "15-19": "15 to 24",
-        "20-24": "15 to 24",
+        # 15-19, 20-24 -> 15 to 24
+        "15-19": "15 to 24", "20-24": "15 to 24",
         
-        # Map 25-29 and 30-34 to the capitation's 25 to 34
-        "25-29": "25 to 34",
-        "30-34": "25 to 34",
+        # 25-29, 30-34 -> 25 to 34
+        "25-29": "25 to 34", "30-34": "25 to 34",
         
-        # Map 35-39 and 40-44 to the capitation's 35 to 44
-        "35-39": "35 to 44",
-        "40-44": "35 to 44",
+        # 35-39, 40-44 -> 35 to 44
+        "35-39": "35 to 44", "40-44": "35 to 44",
         
-        # Map 45-49 and 50-54 to the capitation's 45 to 54
-        "45-49": "45 to 54",
-        "50-54": "45 to 54",
+        # 45-49, 50-54 -> 45 to 54
+        "45-49": "45 to 54", "50-54": "45 to 54",
         
-        # Map 55-59 and 60-64 to the capitation's 55 to 64
-        "55-59": "55 to 64",
-        "60-64": "55 to 64",
+        # 55-59, 60-64 -> 55 to 64
+        "55-59": "55 to 64", "60-64": "55 to 64",
         
-        # Map 65-69 and 70-74 to the capitation's 65 to 74
-        "65-69": "65 to 74",
-        "70-74": "65 to 74",
+        # 65-69, 70-74 -> 65 to 74
+        "65-69": "65 to 74", "70-74": "65 to 74",
         
-        # Map 75-79 and 80-84 to the capitation's 75 to 84
-        "75-79": "75 to 84",
-        "80-84": "75 to 84",
+        # 75-79, 80-84 -> 75 to 84
+        "75-79": "75 to 84", "80-84": "75 to 84",
         
-        # Map 85-89, 90-94, 95-99, 100+ to the capitation's 85 and over
-        "85-89": "85 and over",
-        "90-94": "85 and over",
-        "95-99": "85 and over",
-        "100+": "85 and over"
+        # 85-89, 90-94, 95-99, 100+ -> 85 and over
+        "85-89": "85 and over", "90-94": "85 and over", 
+        "95-99": "85 and over", "100+": "85 and over"
     }
     
-    # Try to match the age group
+    # Standardize the input age group
+    if not isinstance(un_age_group, str):
+        return None
+    
+    un_age_group = un_age_group.strip().lower()
+    
+    # Direct lookup
+    if un_age_group in mapping:
+        return mapping[un_age_group]
+    
+    # Try pattern matching if direct lookup fails
     for pattern, mapped_group in mapping.items():
-        if pattern in un_age_group:
+        if pattern.lower() in un_age_group.lower():
             return mapped_group
     
     return None
+
+def process_population_with_weights(pop_df, cap_dict, weight_key, result_index):
+    """
+    Process population data by applying weights and updating the standardized population.
+    
+    Args:
+        pop_df: Population DataFrame (male or female)
+        cap_dict: Dictionary with capitation weights
+        weight_key: Key to use in cap_dict ("Men", "Women", or "Combined")
+        result_index: Indexed result DataFrame to update
+    """
+    # Check if we have the necessary columns
+    if not {'ISO3', 'Year', 'Age_Group', 'Population'}.issubset(pop_df.columns):
+        logger.warning(f"Population DataFrame missing required columns for {weight_key}")
+        return
+    
+    # Create pivot table to efficiently process by age group
+    try:
+        pop_pivot = pop_df.pivot_table(
+            index=['ISO3', 'Year'],
+            columns='Age_Group',
+            values='Population',
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        # Process each age group in the capitation formula
+        for age_group, weights in cap_dict.items():
+            if age_group in pop_pivot.columns and weight_key in weights:
+                # Get the weight for this age group and sex
+                weight = weights[weight_key]
+                
+                # Calculate weighted population
+                weighted_pop = pop_pivot[age_group] * weight
+                
+                # Add to the standardized population in the result DataFrame
+                for idx, value in weighted_pop.items():
+                    if idx in result_index.index:
+                        # Add to existing value (important for combined formulas)
+                        result_index.at[idx, 'Standardized_Population'] += value
+        
+        # Verify some results were calculated
+        non_zero_count = (result_index['Standardized_Population'] > 0).sum()
+        if non_zero_count == 0:
+            logger.warning("No standardized population values were calculated")
+    
+    except Exception as e:
+        logger.error(f"Error processing population with weights for {weight_key}: {e}")
+        
+def _create_consolidated_keys(male_pop, female_pop):
+    """
+    Create a consolidated set of ISO3-Year keys from both datasets.
+    
+    Args:
+        male_pop: DataFrame with male population data
+        female_pop: DataFrame with female population data
+        
+    Returns:
+        DataFrame with consolidated keys
+    """
+    # Print incoming data info
+    logger.debug("Creating consolidated keys:")
+    logger.debug(f"  Male data shape: {male_pop.shape if not male_pop.empty else 'Empty'}")
+    logger.debug(f"  Female data shape: {female_pop.shape if not female_pop.empty else 'Empty'}")
+    
+    # Initialize with an empty DataFrame
+    all_keys = pd.DataFrame(columns=['ISO3', 'Year'])
+    
+    # Add keys from male population if available
+    if not male_pop.empty and 'ISO3' in male_pop.columns and 'Year' in male_pop.columns:
+        male_keys = male_pop[['ISO3', 'Year']].drop_duplicates()
+        all_keys = pd.concat([all_keys, male_keys], ignore_index=True)
+        logger.debug(f"  Added {len(male_keys)} unique ISO3-Year pairs from male data")
+    
+    # Add keys from female population if available
+    if not female_pop.empty and 'ISO3' in female_pop.columns and 'Year' in female_pop.columns:
+        female_keys = female_pop[['ISO3', 'Year']].drop_duplicates()
+        all_keys = pd.concat([all_keys, female_keys], ignore_index=True)
+        logger.debug(f"  Added {len(female_keys)} unique ISO3-Year pairs from female data")
+    
+    # Remove duplicates after combining both
+    all_keys = all_keys.drop_duplicates(['ISO3', 'Year'])
+    logger.debug(f"  Final consolidated keys: {len(all_keys)} unique ISO3-Year pairs")
+    
+    # Check for any potential invalid values
+    if not all_keys.empty:
+        na_iso3 = all_keys['ISO3'].isna().sum()
+        na_year = all_keys['Year'].isna().sum()
+        if na_iso3 > 0 or na_year > 0:
+            logger.warning(f"  Found {na_iso3} missing ISO3 values and {na_year} missing Year values")
+            # Remove these problematic rows
+            all_keys = all_keys.dropna(subset=['ISO3', 'Year'])
+            logger.debug(f"  After removing missing values: {len(all_keys)} keys")
+    
+    # Initialize standardized population column
+    all_keys['Standardized_Population'] = 0.0
+    
+    # Print a sample of the keys
+    if not all_keys.empty:
+        logger.debug("  Sample of consolidated keys:")
+        logger.debug(all_keys.head())
+    
+    return all_keys
+
+def _apply_country_mapping(keys_df, male_pop, female_pop):
+    """
+    Apply country names from population datasets to the keys.
+    
+    Args:
+        keys_df: DataFrame with ISO3-Year keys
+        male_pop: DataFrame with male population data
+        female_pop: DataFrame with female population data
+        
+    Returns:
+        DataFrame with country names added
+    """
+    # Create a unified country mapping
+    country_mapping = {}
+    
+    # Extract mappings from both datasets
+    for dataset in [male_pop, female_pop]:
+        if not dataset.empty and 'ISO3' in dataset.columns and 'Country' in dataset.columns:
+            # Extract unique ISO3-Country pairs
+            mapping = dataset.drop_duplicates('ISO3')[['ISO3', 'Country']]
+            for _, row in mapping.iterrows():
+                if pd.notna(row['Country']) and (row['ISO3'] not in country_mapping or pd.isna(country_mapping[row['ISO3']])):
+                    country_mapping[row['ISO3']] = row['Country']
+    
+    # Apply mapping to keys dataframe
+    keys_df['Country'] = keys_df['ISO3'].map(country_mapping)
+    
+    # Fill missing country names with ISO3 code
+    keys_df['Country'] = keys_df['Country'].fillna(keys_df['ISO3'])
+    
+    return keys_df
+
+def calculate_standardized_population_israeli(result_df, male_pop, female_pop, cap_dict):
+    """
+    Calculate standardized population using the Israeli formula with separate weights for men and women.
+    Updates the result_df in place.
+    
+    Args:
+        result_df: DataFrame to store results (will be modified in place)
+        male_pop: Male population data
+        female_pop: Female population data
+        cap_dict: Dictionary with capitation weights
+    """
+    # Create efficient index for the results DataFrame
+    result_index = result_df.set_index(['ISO3', 'Year'])
+    
+    # Process male population data
+    if not male_pop.empty:
+        process_population_with_weights(male_pop, cap_dict, "Men", result_index)
+    
+    # Process female population data
+    if not female_pop.empty:
+        process_population_with_weights(female_pop, cap_dict, "Women", result_index)
+
+def calculate_standardized_population_combined(result_df, male_pop, female_pop, cap_dict):
+    """
+    Calculate standardized population using a formula with combined weights for both sexes.
+    Updates the result_df in place.
+    
+    Args:
+        result_df: DataFrame to store results (will be modified in place)
+        male_pop: Male population data
+        female_pop: Female population data
+        cap_dict: Dictionary with capitation weights
+    """
+    # Create efficient index for the results DataFrame
+    result_index = result_df.set_index(['ISO3', 'Year'])
+    
+    # Process male population data with combined weights
+    if not male_pop.empty:
+        process_population_with_weights(male_pop, cap_dict, "Combined", result_index)
+    
+    # Process female population data with combined weights
+    if not female_pop.empty:
+        process_population_with_weights(female_pop, cap_dict, "Combined", result_index)
 
 def preprocess_population_data(male_pop, female_pop, cap_dict, formula_type='israeli'):
     """
@@ -587,181 +843,72 @@ def preprocess_population_data(male_pop, female_pop, cap_dict, formula_type='isr
     Returns:
         DataFrame with standardized population by country and year
     """
-    print(f"Calculating standardized population using {formula_type} formula...")
+    logger.info(f"Calculating standardized population using {formula_type} formula...")
     
-    # Check for empty dataframes
-    if male_pop.empty or female_pop.empty:
-        print("Warning: Empty population data provided")
+    # Check if both population dataframes are empty
+    if male_pop.empty and female_pop.empty:
+        logger.warning("Both male and female population data are empty")
         return pd.DataFrame(columns=['ISO3', 'Year', 'Country', 'Standardized_Population'])
     
-    # Only select the necessary columns for the keys to avoid duplicate columns
-    male_keys = male_pop[['ISO3', 'Year']].drop_duplicates()
-    female_keys = female_pop[['ISO3', 'Year']].drop_duplicates()
+    # Print shape information
+    logger.debug(f"Male population data shape: {male_pop.shape if not male_pop.empty else 'Empty'}")
+    logger.debug(f"Female population data shape: {female_pop.shape if not female_pop.empty else 'Empty'}")
     
-    # Use outer join to include all country-year combinations
-    all_keys = pd.merge(male_keys, female_keys, on=['ISO3', 'Year'], how='outer')
+    # Check for required columns
+    required_cols = ['ISO3', 'Year', 'Age_Group', 'Population']
+    for df_name, df in [('Male', male_pop), ('Female', female_pop)]:
+        if not df.empty:
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                logger.warning(f"{df_name} population data missing columns: {missing_cols}")
     
-    # Create a standardized country mapping
-    country_mapping = {}
+    # Create a consolidated set of ISO3-Year keys
+    result_df = _create_consolidated_keys(male_pop, female_pop)
     
-    # Get country names from male dataset
-    if 'Country' in male_pop.columns:
-        male_countries = male_pop[['ISO3', 'Country']].drop_duplicates()
-        for _, row in male_countries.iterrows():
-            if pd.notna(row['Country']):
-                country_mapping[row['ISO3']] = row['Country']
+    # Apply country mapping
+    result_df = _apply_country_mapping(result_df, male_pop, female_pop)
     
-    # Add any missing country names from female dataset
-    if 'Country' in female_pop.columns:
-        female_countries = female_pop[['ISO3', 'Country']].drop_duplicates()
-        for _, row in female_countries.iterrows():
-            if row['ISO3'] not in country_mapping and pd.notna(row['Country']):
-                country_mapping[row['ISO3']] = row['Country']
+    # Make sure we have some rows in the result
+    if result_df.empty:
+        logger.error("Could not create keys for standardized population calculation")
+        return result_df
     
-    # Apply country names to the results
-    all_keys['Country'] = all_keys['ISO3'].map(country_mapping)
+    logger.debug(f"Created result dataframe with {len(result_df)} rows")
     
-    # Fill any missing country names with the ISO3 code
-    all_keys['Country'] = all_keys['Country'].fillna(all_keys['ISO3'])
+    # Create index for faster lookups
+    result_index = result_df.set_index(['ISO3', 'Year'])
+    logger.debug(f"Created indexed dataframe with {len(result_index)} rows")
     
-    # Initialize standardized population
-    all_keys['Standardized_Population'] = 0.0
-    
+    # Apply the appropriate formula calculation
     if formula_type == 'israeli':
         # Process using Israeli formula (separate weights for men and women)
-        process_israeli_formula(all_keys, male_pop, female_pop, cap_dict)
+        logger.info("Using Israeli formula with separate weights for men and women")
+        if not male_pop.empty:
+            process_population_with_weights(male_pop, cap_dict, "Men", result_index)
+        if not female_pop.empty:
+            process_population_with_weights(female_pop, cap_dict, "Women", result_index)
     else:
         # Process using LTC or EU27 formula (combined weight for both sexes)
-        process_combined_formula(all_keys, male_pop, female_pop, cap_dict)
+        logger.info(f"Using {formula_type} formula with combined weights")
+        if not male_pop.empty:
+            process_population_with_weights(male_pop, cap_dict, "Combined", result_index)
+        if not female_pop.empty:
+            process_population_with_weights(female_pop, cap_dict, "Combined", result_index)
     
-    # Count countries with standardized population
-    countries_with_std_pop = all_keys[all_keys['Standardized_Population'] > 0]['ISO3'].nunique()
-    print(f"Calculated standardized population for {countries_with_std_pop} unique countries")
+    # Reset index to get back to a standard DataFrame
+    result_df = result_index.reset_index()
     
-    return all_keys
-
-
-def process_israeli_formula(result_df, male_pop, female_pop, cap_dict):
-    """
-    Process population data using the Israeli formula with separate weights for men and women.
+    # Count non-zero standardized population
+    non_zero_count = (result_df['Standardized_Population'] > 0).sum()
+    countries_with_std_pop = result_df[result_df['Standardized_Population'] > 0]['ISO3'].nunique()
     
-    Args:
-        result_df: DataFrame to store results
-        male_pop: Male population data
-        female_pop: Female population data
-        cap_dict: Dictionary with capitation weights
-    """
-    # Create a pivot table of male population by ISO3, Year, and Age_Group
-    if not male_pop.empty:
-        male_pivot = male_pop.pivot_table(
-            index=['ISO3', 'Year'],
-            columns='Age_Group',
-            values='Population',
-            aggfunc='sum',
-            fill_value=0
-        )
-        
-        # Apply weights to each age group and sum
-        for age_group in cap_dict:
-            if age_group in male_pivot.columns:
-                weight = cap_dict[age_group]['Men']
-                # Create a Series of weighted population
-                weighted_pop = male_pivot[age_group] * weight
-                
-                # Create a mapping to update the results
-                weighted_dict = {idx: val for idx, val in weighted_pop.items()}
-                
-                # Update the standardized population
-                for idx, row in result_df.iterrows():
-                    key = (row['ISO3'], row['Year'])
-                    if key in weighted_dict:
-                        result_df.at[idx, 'Standardized_Population'] += weighted_dict[key]
+    logger.info(f"Calculated non-zero standardized population for {countries_with_std_pop} unique countries")
+    logger.info(f"Non-zero standardized population values: {non_zero_count} out of {len(result_df)} rows")
     
-    # Create a pivot table of female population by ISO3, Year, and Age_Group
-    if not female_pop.empty:
-        female_pivot = female_pop.pivot_table(
-            index=['ISO3', 'Year'],
-            columns='Age_Group',
-            values='Population',
-            aggfunc='sum',
-            fill_value=0
-        )
-        
-        # Apply weights to each age group and sum
-        for age_group in cap_dict:
-            if age_group in female_pivot.columns:
-                weight = cap_dict[age_group]['Women']
-                # Create a Series of weighted population
-                weighted_pop = female_pivot[age_group] * weight
-                
-                # Create a mapping to update the results
-                weighted_dict = {idx: val for idx, val in weighted_pop.items()}
-                
-                # Update the standardized population
-                for idx, row in result_df.iterrows():
-                    key = (row['ISO3'], row['Year'])
-                    if key in weighted_dict:
-                        result_df.at[idx, 'Standardized_Population'] += weighted_dict[key]
-
-
-def process_combined_formula(result_df, male_pop, female_pop, cap_dict):
-    """
-    Process population data using a formula with combined weights for both sexes.
+    if non_zero_count == 0:
+        logger.warning("All standardized population values are zero!")
     
-    Args:
-        result_df: DataFrame to store results
-        male_pop: Male population data
-        female_pop: Female population data
-        cap_dict: Dictionary with capitation weights
-    """
-    # Create pivot tables
-    if not male_pop.empty:
-        male_pivot = male_pop.pivot_table(
-            index=['ISO3', 'Year'],
-            columns='Age_Group',
-            values='Population',
-            aggfunc='sum',
-            fill_value=0
-        )
-    else:
-        male_pivot = pd.DataFrame()
-        
-    if not female_pop.empty:
-        female_pivot = female_pop.pivot_table(
-            index=['ISO3', 'Year'],
-            columns='Age_Group',
-            values='Population',
-            aggfunc='sum',
-            fill_value=0
-        )
-    else:
-        female_pivot = pd.DataFrame()
-    
-    # Process each age group
-    for age_group in cap_dict:
-        weight = cap_dict[age_group]['Combined']
-        
-        # Process male population for this age group
-        if not male_pivot.empty and age_group in male_pivot.columns:
-            weighted_pop = male_pivot[age_group] * weight
-            weighted_dict = {idx: val for idx, val in weighted_pop.items()}
-            
-            # Update the standardized population
-            for idx, row in result_df.iterrows():
-                key = (row['ISO3'], row['Year'])
-                if key in weighted_dict:
-                    result_df.at[idx, 'Standardized_Population'] += weighted_dict[key]
-        
-        # Process female population for this age group
-        if not female_pivot.empty and age_group in female_pivot.columns:
-            weighted_pop = female_pivot[age_group] * weight
-            weighted_dict = {idx: val for idx, val in weighted_pop.items()}
-            
-            # Update the standardized population
-            for idx, row in result_df.iterrows():
-                key = (row['ISO3'], row['Year'])
-                if key in weighted_dict:
-                    result_df.at[idx, 'Standardized_Population'] += weighted_dict[key]
+    return result_df
 
 def load_gdp_data(reference_year=2017):
     """
@@ -773,118 +920,178 @@ def load_gdp_data(reference_year=2017):
     Returns:
         DataFrame with columns: ISO3, Year, GDP_Deflator
     """
-    print("Loading GDP data for deflator calculation...")
+    logger.info("Loading GDP data for deflator calculation...")
+    
+    # Define empty result structure for fallback
+    empty_result = pd.DataFrame(columns=["ISO3", "Country", "Year", "GDP_Deflator"])
     
     try:
-        # Read the GDP files (current LCU and constant LCU)
-        gdp_current_file = "API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv"
-        gdp_constant_file = "API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv"
+        # Define filenames
+        gdp_files = {
+            "current": "API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv",
+            "constant": "API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv"
+        }
         
-        # Load the CSV files
-        gdp_current_df = pd.read_csv(data_path / gdp_current_file)
-        gdp_constant_df = pd.read_csv(data_path / gdp_constant_file)
+        # Load both datasets
+        gdp_data = {}
+        for gdp_type, filename in gdp_files.items():
+            try:
+                gdp_data[gdp_type] = pd.read_csv(data_path / filename)
+                logger.debug(f"Loaded {gdp_type} GDP data: {gdp_data[gdp_type].shape}")
+            except Exception as file_error:
+                logger.error(f"Error loading {gdp_type} GDP data: {file_error}")
+                return empty_result
         
-        # Process both datasets to create year-country pairs with GDP values
-        gdp_current_data = []
-        gdp_constant_data = []
-        
-        # Get year columns (exclude metadata columns)
-        year_columns = [col for col in gdp_current_df.columns if col.isdigit()]
-        
-        # Process current GDP data
-        for _, row in gdp_current_df.iterrows():
-            country = row['Country Name']
-            country_code = row['Country Code']  # ISO3 code in World Bank data
+        # Check if we have both datasets
+        if not all(key in gdp_data for key in gdp_files.keys()):
+            logger.error("Could not load all required GDP datasets")
+            return empty_result
             
-            # Skip aggregate regions
-            if any(x in country.lower() for x in ['region', 'world', 'income', 'development']):
-                continue
-                
-            for year in year_columns:
-                if pd.notna(row[year]) and row[year] != 0:
-                    gdp_current_data.append({
-                        "Country": country,  # Keep country name for reference
-                        "ISO3": country_code,  # Use ISO3 code for merging
-                        "Year": int(year),
-                        "GDP_Current": float(row[year])
-                    })
+        # Process the data
+        long_dfs = []
+        for gdp_type, df in gdp_data.items():
+            long_df = process_wb_data_to_long_format(
+                df, 
+                value_col_name=f"GDP_{gdp_type.capitalize()}",
+                skip_aggregates=True
+            )
+            if not long_df.empty:
+                long_dfs.append(long_df)
+            else:
+                logger.error(f"Could not process {gdp_type} GDP data")
+                return empty_result
         
-        # Process constant GDP data
-        for _, row in gdp_constant_df.iterrows():
-            country = row['Country Name']
-            country_code = row['Country Code']  # ISO3 code in World Bank data
-            
-            # Skip aggregate regions
-            if any(x in country.lower() for x in ['region', 'world', 'income', 'development']):
-                continue
-                
-            for year in year_columns:
-                if pd.notna(row[year]) and row[year] != 0:
-                    gdp_constant_data.append({
-                        "Country": country,  # Keep country name for reference
-                        "ISO3": country_code,  # Use ISO3 code for merging
-                        "Year": int(year),
-                        "GDP_Constant": float(row[year])
-                    })
-        
-        # Convert to DataFrames
-        gdp_current_df = pd.DataFrame(gdp_current_data)
-        gdp_constant_df = pd.DataFrame(gdp_constant_data)
-        
-        # Merge the datasets on ISO3 and Year
+        # Merge the datasets
         gdp_merged = pd.merge(
-            gdp_current_df,
-            gdp_constant_df,
-            on=["ISO3", "Year"],
+            long_dfs[0], long_dfs[1],
+            on=["ISO3", "Year", "Country"],
             how="inner"
         )
         
-        # Calculate GDP deflator (GDP_Current / GDP_Constant)
+        # Calculate GDP deflator
         gdp_merged["GDP_Deflator"] = gdp_merged["GDP_Current"] / gdp_merged["GDP_Constant"]
         
-        # For each country, normalize the deflator by the reference year
-        gdp_deflator = []
-        for iso3 in gdp_merged["ISO3"].unique():
-            country_data = gdp_merged[gdp_merged["ISO3"] == iso3].copy()
-            
-            # Check if the reference year exists for this country
-            ref_year_data = country_data[country_data["Year"] == reference_year]
-            
-            if not ref_year_data.empty:
-                # If reference year exists, normalize by it
-                ref_deflator = ref_year_data["GDP_Deflator"].iloc[0]
-                country_data["GDP_Deflator_Normalized"] = country_data["GDP_Deflator"] / ref_deflator
-            else:
-                # If reference year doesn't exist, find the closest year
-                available_years = country_data["Year"].tolist()
-                if available_years:
-                    closest_year = min(available_years, key=lambda x: abs(x - reference_year))
-                    ref_deflator = country_data[country_data["Year"] == closest_year]["GDP_Deflator"].iloc[0]
-                    country_data["GDP_Deflator_Normalized"] = country_data["GDP_Deflator"] / ref_deflator
-                    country_name = country_data["Country_x"].iloc[0]  # Use the first country name from the merged data
-                    print(f"Using {closest_year} as reference year for {country_name} ({iso3}) (reference {reference_year} not available)")
-                else:
-                    # No data for this country
-                    country_data["GDP_Deflator_Normalized"] = np.nan
-            
-            # Add to the result list
-            gdp_deflator.append(country_data[["ISO3", "Country_x", "Year", "GDP_Deflator_Normalized"]])
+        # Normalize by reference year
+        result = normalize_by_reference_year(
+            gdp_merged, 
+            reference_year=reference_year,
+            value_column="GDP_Deflator"
+        )
         
-        # Combine all countries
-        result = pd.concat(gdp_deflator, ignore_index=True)
-        result = result.rename(columns={"GDP_Deflator_Normalized": "GDP_Deflator", "Country_x": "Country"})
-        
-        print(f"Loaded GDP deflator data with shape: {result.shape}")
-        
+        logger.info(f"Loaded GDP deflator data with shape: {result.shape}")
         return result
-    
-    except Exception as e:
-        print(f"Error loading GDP data: {e}")
-        import traceback
-        traceback.print_exc()
         
-        # Return empty DataFrame as fallback
-        return pd.DataFrame(columns=["ISO3", "Country", "Year", "GDP_Deflator"])
+    except Exception as e:
+        logger.error(f"Error loading GDP data: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return empty_result
+
+def process_wb_data_to_long_format(df, value_col_name, skip_aggregates=True):
+    """
+    Process World Bank data from wide to long format.
+    
+    Args:
+        df: World Bank data in wide format
+        value_col_name: Name for the value column
+        skip_aggregates: Whether to skip regional aggregates
+        
+    Returns:
+        DataFrame in long format with ISO3, Year, Country, and value column
+    """
+    # Get year columns (numeric columns)
+    year_columns = [col for col in df.columns if col.isdigit()]
+    
+    # Skip if no year columns found
+    if not year_columns:
+        logger.error("No year columns found in World Bank data")
+        return pd.DataFrame()
+    
+    # Convert to long format
+    long_df = pd.melt(
+        df,
+        id_vars=['Country Name', 'Country Code'],
+        value_vars=year_columns,
+        var_name='Year',
+        value_name=value_col_name
+    )
+    
+    # Clean up the data
+    long_df = (long_df
+               .rename(columns={'Country Name': 'Country', 'Country Code': 'ISO3'})
+               .dropna(subset=[value_col_name])  # Remove missing values
+               .query(f'{value_col_name} != 0')  # Remove zeros
+               .astype({'Year': int})            # Convert year to integer
+              )
+    
+    # Filter out aggregates if requested
+    if skip_aggregates:
+        region_terms = ['region', 'world', 'income', 'development']
+        region_pattern = '|'.join(region_terms)
+        long_df = long_df[~long_df['Country'].str.lower().str.contains(region_pattern, na=False)]
+    
+    return long_df
+
+def normalize_by_reference_year(df, reference_year, value_column, id_columns=["ISO3"]):
+    """
+    Normalize values by a reference year for each entity.
+    
+    Args:
+        df: DataFrame with data to normalize
+        reference_year: Year to use as reference
+        value_column: Column with values to normalize
+        id_columns: List of columns that uniquely identify each entity
+        
+    Returns:
+        DataFrame with normalized values
+    """
+    # Create a copy to avoid modifying the input
+    result_df = df.copy()
+    
+    # Create a new column for normalized values
+    norm_col = f"{value_column}_Normalized"
+    result_df[norm_col] = np.nan
+    
+    # Process each entity separately
+    entities = df.drop_duplicates(id_columns)[id_columns].values
+    
+    for entity_values in entities:
+        # Create a filter for this entity
+        entity_filter = np.ones(len(df), dtype=bool)
+        for i, col in enumerate(id_columns):
+            entity_filter &= (df[col] == entity_values[i])
+        
+        entity_data = df[entity_filter].copy()
+        
+        # Check if reference year exists for this entity
+        ref_year_data = entity_data[entity_data["Year"] == reference_year]
+        
+        if not ref_year_data.empty:
+            # Use reference year value
+            ref_value = ref_year_data[value_column].iloc[0]
+        else:
+            # Find closest year
+            available_years = entity_data["Year"].unique()
+            if len(available_years) > 0:
+                closest_year = min(available_years, key=lambda x: abs(x - reference_year))
+                ref_value = entity_data[entity_data["Year"] == closest_year][value_column].iloc[0]
+                
+                # Log the substitution
+                entity_name = ", ".join([f"{col}={entity_values[i]}" for i, col in enumerate(id_columns)])
+                logger.debug(f"Using {closest_year} as reference year for {entity_name} (reference {reference_year} not available)")
+            else:
+                # No years available
+                continue
+        
+        # Normalize by reference value
+        if ref_value != 0:
+            result_df.loc[entity_filter, norm_col] = result_df.loc[entity_filter, value_column] / ref_value
+    
+    # Return only the necessary columns
+    result_cols = id_columns + ["Year", "Country", norm_col]
+    result = result_df[result_cols].rename(columns={norm_col: value_column})
+    
+    return result
 
 def apply_gdp_deflator_adjustment(data, gdp_deflator, impute_missing=False):
     """
@@ -898,10 +1105,15 @@ def apply_gdp_deflator_adjustment(data, gdp_deflator, impute_missing=False):
     Returns:
         DataFrame with constant price adjusted health expenditure
     """
-    print("Applying GDP deflator adjustment for constant prices...")
+    logger.info("Applying GDP deflator adjustment for constant prices...")
     
     # Make a copy to avoid modifying the original data
     adjusted_data = data.copy()
+    
+    # Check if gdp_deflator is valid
+    if gdp_deflator is None or gdp_deflator.empty:
+        logger.warning("GDP deflator data is empty, skipping adjustment")
+        return adjusted_data
     
     # Merge GDP deflator data with health expenditure data using ISO3 code
     merged = pd.merge(
@@ -911,80 +1123,152 @@ def apply_gdp_deflator_adjustment(data, gdp_deflator, impute_missing=False):
         how='left'
     )
     
-    # Check if any GDP deflators are missing
-    missing_deflator = merged['GDP_Deflator'].isna().sum()
-    if missing_deflator > 0:
-        print(f"Warning: Missing GDP deflators for {missing_deflator} out of {len(merged)} rows")
-        
-        # For countries/years with missing deflators, impute using nearest available year if impute_missing is True
-        if impute_missing:
-            print(f"Imputing missing GDP deflators...")
-            countries_with_missing = merged[merged['GDP_Deflator'].isna()]['ISO3'].unique()
-            
-            for iso3 in countries_with_missing:
-                country_data = merged[merged['ISO3'] == iso3]
-                missing_years = country_data[country_data['GDP_Deflator'].isna()]['Year'].tolist()
-                
-                # If country has any deflator data, use nearest year
-                if any(~country_data['GDP_Deflator'].isna()):
-                    available_years = country_data[~country_data['GDP_Deflator'].isna()]['Year'].tolist()
-                    
-                    for missing_year in missing_years:
-                        # Find closest available year
-                        closest_year = min(available_years, key=lambda x: abs(x - missing_year))
-                        closest_deflator = country_data[country_data['Year'] == closest_year]['GDP_Deflator'].iloc[0]
-                        
-                        # Impute the missing value
-                        idx = merged[(merged['ISO3'] == iso3) & (merged['Year'] == missing_year)].index
-                        merged.loc[idx, 'GDP_Deflator'] = closest_deflator
-                        
-                        # Display country name if available
-                        if 'Country' in merged.columns:
-                            country_name = merged.loc[merged['ISO3'] == iso3, 'Country'].iloc[0]
-                            print(f"Imputed GDP deflator for {country_name} ({iso3}) in year {missing_year} using data from {closest_year}")
-                        else:
-                            print(f"Imputed GDP deflator for ISO3: {iso3} in year {missing_year} using data from {closest_year}")
-        else:
-            print(f"Skipping imputation for missing GDP deflators as requested")
+    # Handle missing GDP deflators
+    merged = _handle_missing_values(
+        merged, 
+        value_column='GDP_Deflator',
+        impute=impute_missing,
+        value_label='GDP deflator'
+    )
     
     # Create a mask for rows with valid deflator values
     valid_deflator_mask = ~merged['GDP_Deflator'].isna()
     
-    # Adjust expenditure values to constant prices (reference year) only for rows with valid deflators
-    # formula: constant_price_value = current_price_value / deflator
+    # Define expenditure types to adjust (total, public, private)
+    expenditure_types = {
+        'Total': 'Total_Health_Expenditure',
+        'Public': 'Public_Health_Expenditure',
+        'Private': 'Private_Health_Expenditure'
+    }
     
-    # Adjust total health expenditure
-    if 'Total_Health_Expenditure' in merged.columns:
-        merged['Total_Health_Expenditure_Constant'] = np.nan
-        merged['Total_Health_Expenditure_per_Std_Capita_Constant'] = np.nan
-        
-        # Calculate only for valid rows
-        merged.loc[valid_deflator_mask, 'Total_Health_Expenditure_Constant'] = merged.loc[valid_deflator_mask, 'Total_Health_Expenditure'] / merged.loc[valid_deflator_mask, 'GDP_Deflator']
-        merged.loc[valid_deflator_mask, 'Total_Health_Expenditure_per_Std_Capita_Constant'] = merged.loc[valid_deflator_mask, 'Total_Health_Expenditure_Constant'] / merged.loc[valid_deflator_mask, 'Standardized_Population']
-    
-    # Adjust public health expenditure if available
-    if 'Public_Health_Expenditure' in merged.columns:
-        merged['Public_Health_Expenditure_Constant'] = np.nan
-        merged['Public_Health_Expenditure_per_Std_Capita_Constant'] = np.nan
-        
-        # Calculate only for valid rows with non-null public health expenditure
-        valid_public_mask = valid_deflator_mask & ~merged['Public_Health_Expenditure'].isna()
-        
-        merged.loc[valid_public_mask, 'Public_Health_Expenditure_Constant'] = merged.loc[valid_public_mask, 'Public_Health_Expenditure'] / merged.loc[valid_public_mask, 'GDP_Deflator']
-        merged.loc[valid_public_mask, 'Public_Health_Expenditure_per_Std_Capita_Constant'] = merged.loc[valid_public_mask, 'Public_Health_Expenditure_Constant'] / merged.loc[valid_public_mask, 'Standardized_Population']
-    
-    # Adjust private health expenditure if available
-    if 'Private_Health_Expenditure' in merged.columns:
-        merged['Private_Health_Expenditure_Constant'] = np.nan
-        merged['Private_Health_Expenditure_per_Std_Capita_Constant'] = np.nan
-        
-        # Calculate only for valid rows with non-null private health expenditure
-        valid_private_mask = valid_deflator_mask & ~merged['Private_Health_Expenditure'].isna()
-        
-        merged.loc[valid_private_mask, 'Private_Health_Expenditure_Constant'] = merged.loc[valid_private_mask, 'Private_Health_Expenditure'] / merged.loc[valid_private_mask, 'GDP_Deflator']
-        merged.loc[valid_private_mask, 'Private_Health_Expenditure_per_Std_Capita_Constant'] = merged.loc[valid_private_mask, 'Private_Health_Expenditure_Constant'] / merged.loc[valid_private_mask, 'Standardized_Population']
+    # Process each expenditure type
+    for type_label, column_name in expenditure_types.items():
+        if column_name in merged.columns:
+            # Apply constant price adjustment for this expenditure type
+            merged = _apply_deflator_to_expenditure(
+                merged,
+                expenditure_column=column_name,
+                deflator_mask=valid_deflator_mask,
+                type_prefix=type_label.lower()
+            )
     
     return merged
+
+def _handle_missing_values(df, value_column, impute=False, value_label='value'):
+    """
+    Handle missing values in a DataFrame by either imputing or reporting.
+    
+    Args:
+        df: DataFrame with potentially missing values
+        value_column: Column name that may have missing values
+        impute: Whether to impute missing values using nearest year
+        value_label: Description of the value for messages
+        
+    Returns:
+        DataFrame with potentially imputed values
+    """
+    # Check if any values are missing
+    missing_count = df[value_column].isna().sum()
+    if missing_count == 0:
+        return df
+    
+    logger.warning(f"Missing {value_label}s for {missing_count} out of {len(df)} rows")
+    
+    # Skip imputation if not requested
+    if not impute:
+        logger.info(f"Skipping imputation for missing {value_label}s as requested")
+        return df
+    
+    # Make a copy to avoid modifying the input
+    result = df.copy()
+    logger.info(f"Imputing missing {value_label}s...")
+    
+    # Get list of entities with missing values
+    id_cols = ['ISO3']
+    entities_with_missing = df[df[value_column].isna()][id_cols].drop_duplicates()
+    
+    # Process each entity
+    for _, entity in entities_with_missing.iterrows():
+        entity_filter = True
+        entity_label_parts = []
+        
+        # Create filter and label for this entity
+        for col in id_cols:
+            entity_filter &= (df[col] == entity[col])
+            entity_label_parts.append(f"{entity[col]}")
+            
+        entity_data = df[entity_filter]
+        entity_label = ", ".join(entity_label_parts)
+        
+        # Get missing years for this entity
+        missing_years = entity_data[entity_data[value_column].isna()]['Year'].tolist()
+        
+        # Check if entity has any non-missing values
+        if any(~entity_data[value_column].isna()):
+            available_years = entity_data[~entity_data[value_column].isna()]['Year'].tolist()
+            
+            for missing_year in missing_years:
+                # Find closest available year
+                closest_year = min(available_years, key=lambda x: abs(x - missing_year))
+                closest_value = entity_data[entity_data['Year'] == closest_year][value_column].iloc[0]
+                
+                # Impute the missing value
+                impute_filter = entity_filter & (df['Year'] == missing_year)
+                result.loc[impute_filter, value_column] = closest_value
+                
+                # Display imputation information with country name if available
+                if 'Country' in df.columns:
+                    country_name = df.loc[entity_filter, 'Country'].iloc[0]
+                    logger.debug(f"Imputed {value_label} for {country_name} ({entity_label}) in year {missing_year} using data from {closest_year}")
+                else:
+                    logger.debug(f"Imputed {value_label} for {entity_label} in year {missing_year} using data from {closest_year}")
+    
+    return result
+
+def _apply_deflator_to_expenditure(df, expenditure_column, deflator_mask, type_prefix):
+    """
+    Apply GDP deflator to convert health expenditure to constant prices.
+    
+    Args:
+        df: DataFrame with health expenditure and GDP deflator data
+        expenditure_column: Column name for the expenditure to adjust
+        deflator_mask: Boolean mask for rows with valid deflators
+        type_prefix: Prefix for output column names (total, public, private)
+    
+    Returns:
+        DataFrame with added constant price columns
+    """
+    # Create a copy to avoid modifying the input
+    result = df.copy()
+    
+    # Create mask for valid expenditure rows (valid deflator and non-null expenditure)
+    valid_exp_mask = deflator_mask & ~df[expenditure_column].isna()
+    
+    # Define output column names
+    constant_col = f"{expenditure_column}_Constant"
+    per_capita_col = f"{expenditure_column}_per_Std_Capita_Constant"
+    
+    # Initialize output columns
+    result[constant_col] = np.nan
+    result[per_capita_col] = np.nan
+    
+    # Calculate constant price values
+    # Formula: constant_price = current_price / deflator
+    result.loc[valid_exp_mask, constant_col] = (
+        result.loc[valid_exp_mask, expenditure_column] / 
+        result.loc[valid_exp_mask, 'GDP_Deflator']
+    )
+    
+    # Calculate per standardized capita values if standardized population is available
+    if 'Standardized_Population' in result.columns:
+        valid_capita_mask = valid_exp_mask & (result['Standardized_Population'] > 0)
+        
+        result.loc[valid_capita_mask, per_capita_col] = (
+            result.loc[valid_capita_mask, constant_col] / 
+            result.loc[valid_capita_mask, 'Standardized_Population']
+        )
+    
+    return result
 
 def apply_ppp_adjustment(data, ppp_data, base_country_iso="USA", reference_year=2017, impute_missing=False):
     """
@@ -1000,6 +1284,13 @@ def apply_ppp_adjustment(data, ppp_data, base_country_iso="USA", reference_year=
     Returns:
         DataFrame with PPP-adjusted health expenditure
     """
+    logger.info("Applying PPP adjustment...")
+    
+    # Check if ppp_data is valid
+    if ppp_data is None or ppp_data.empty:
+        logger.warning("PPP data is empty, skipping adjustment")
+        return data.copy()
+    
     # Make a copy to avoid modifying the original data
     adjusted_data = data.copy()
     
@@ -1011,42 +1302,63 @@ def apply_ppp_adjustment(data, ppp_data, base_country_iso="USA", reference_year=
         how='left'
     )
     
-    # Check if any PPP factors are missing
-    missing_ppp = merged['PPP_Factor'].isna().sum()
-    if missing_ppp > 0:
-        print(f"Warning: Missing PPP factors for {missing_ppp} out of {len(merged)} rows")
-        
-        # For countries/years with missing PPP factors, impute using nearest available year if impute_missing is True
-        if impute_missing:
-            print(f"Imputing missing PPP factors...")
-            countries_with_missing = merged[merged['PPP_Factor'].isna()]['ISO3'].unique()
-            
-            for iso3 in countries_with_missing:
-                country_data = merged[merged['ISO3'] == iso3]
-                missing_years = country_data[country_data['PPP_Factor'].isna()]['Year'].tolist()
-                
-                # If country has any PPP data, use nearest year
-                if any(~country_data['PPP_Factor'].isna()):
-                    available_years = country_data[~country_data['PPP_Factor'].isna()]['Year'].tolist()
-                    
-                    for missing_year in missing_years:
-                        # Find closest available year
-                        closest_year = min(available_years, key=lambda x: abs(x - missing_year))
-                        closest_ppp = country_data[country_data['Year'] == closest_year]['PPP_Factor'].iloc[0]
-                        
-                        # Impute the missing value
-                        idx = merged[(merged['ISO3'] == iso3) & (merged['Year'] == missing_year)].index
-                        merged.loc[idx, 'PPP_Factor'] = closest_ppp
-                        
-                        # Display country name if available
-                        if 'Country' in merged.columns:
-                            country_name = merged.loc[merged['ISO3'] == iso3, 'Country'].iloc[0]
-                            print(f"Imputed PPP factor for {country_name} ({iso3}) in year {missing_year} using data from {closest_year}")
-                        else:
-                            print(f"Imputed PPP factor for ISO3: {iso3} in year {missing_year} using data from {closest_year}")
-        else:
-            print(f"Skipping imputation for missing PPP factors as requested")
+    # Handle missing PPP factors
+    merged = _handle_missing_values(
+        merged, 
+        value_column='PPP_Factor',
+        impute=impute_missing,
+        value_label='PPP factor'
+    )
     
+    # Check if we have PPP factors for the base country
+    if not _validate_base_country(ppp_data, base_country_iso):
+        logger.warning("Cannot perform proper PPP adjustment without base country data")
+        return adjusted_data
+    
+    # Create a mask for rows with valid PPP factors
+    valid_ppp_mask = ~merged['PPP_Factor'].isna()
+    
+    # Define expenditure types to adjust
+    expenditure_types = {
+        'Total': 'Total_Health_Expenditure',
+        'Public': 'Public_Health_Expenditure',
+        'Private': 'Private_Health_Expenditure'
+    }
+    
+    # Process each expenditure type
+    for type_label, column_name in expenditure_types.items():
+        if column_name in merged.columns:
+            # Apply PPP adjustment to current prices
+            merged = _apply_ppp_to_expenditure(
+                merged,
+                expenditure_column=column_name,
+                ppp_mask=valid_ppp_mask,
+                suffix='PPP'
+            )
+            
+            # Apply PPP adjustment to constant prices if available
+            constant_column = f"{column_name}_Constant"
+            if constant_column in merged.columns:
+                merged = _apply_ppp_to_expenditure(
+                    merged,
+                    expenditure_column=constant_column,
+                    ppp_mask=valid_ppp_mask,
+                    suffix='PPP'
+                )
+    
+    return merged
+
+def _validate_base_country(ppp_data, base_country_iso):
+    """
+    Validate that PPP data is available for the base country.
+    
+    Args:
+        ppp_data: DataFrame with PPP data
+        base_country_iso: ISO3 code for the base country
+        
+    Returns:
+        Boolean indicating if the base country has valid PPP data
+    """
     # Check if we have any PPP factors for the base country
     base_country_ppp = ppp_data[ppp_data['ISO3'] == base_country_iso]
     
@@ -1058,256 +1370,135 @@ def apply_ppp_adjustment(data, ppp_data, base_country_iso="USA", reference_year=
             if not base_country_matches.empty:
                 base_country_name = base_country_matches.iloc[0]['Country']
         
-        print(f"Warning: No PPP factors available for base country ({base_country_name}, ISO3: {base_country_iso})")
-        print("Cannot perform proper PPP adjustment without base country data")
-        # Return the original data if we can't adjust
-        return adjusted_data
+        logger.warning(f"No PPP factors available for base country ({base_country_name}, ISO3: {base_country_iso})")
+        return False
     
-    # Calculate PPP-adjusted values only for rows with valid PPP factors
-    valid_ppp_mask = ~merged['PPP_Factor'].isna()
-    
-    # Adjust total health expenditure
-    if 'Total_Health_Expenditure' in merged.columns:
-        # Initialize columns with NaN
-        merged['Total_Health_Expenditure_PPP'] = np.nan
-        merged['Total_Health_Expenditure_per_Std_Capita_PPP'] = np.nan
-        
-        # Calculate for valid rows
-        merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_PPP'] = merged.loc[valid_ppp_mask, 'Total_Health_Expenditure'] / merged.loc[valid_ppp_mask, 'PPP_Factor']
-        merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_per_Std_Capita_PPP'] = merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_PPP'] / merged.loc[valid_ppp_mask, 'Standardized_Population']
-        
-        # If constant price data is available, also adjust it with PPP
-        if 'Total_Health_Expenditure_Constant' in merged.columns:
-            merged['Total_Health_Expenditure_Constant_PPP'] = np.nan
-            merged['Total_Health_Expenditure_per_Std_Capita_Constant_PPP'] = np.nan
-            
-            merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant_PPP'] = merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant'] / merged.loc[valid_ppp_mask, 'PPP_Factor']
-            merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_per_Std_Capita_Constant_PPP'] = merged.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant_PPP'] / merged.loc[valid_ppp_mask, 'Standardized_Population']
-    
-    # Adjust public health expenditure if available
-    if 'Public_Health_Expenditure' in merged.columns:
-        merged['Public_Health_Expenditure_PPP'] = np.nan
-        merged['Public_Health_Expenditure_per_Std_Capita_PPP'] = np.nan
-        
-        valid_public_mask = valid_ppp_mask & ~merged['Public_Health_Expenditure'].isna()
-        
-        merged.loc[valid_public_mask, 'Public_Health_Expenditure_PPP'] = merged.loc[valid_public_mask, 'Public_Health_Expenditure'] / merged.loc[valid_public_mask, 'PPP_Factor']
-        merged.loc[valid_public_mask, 'Public_Health_Expenditure_per_Std_Capita_PPP'] = merged.loc[valid_public_mask, 'Public_Health_Expenditure_PPP'] / merged.loc[valid_public_mask, 'Standardized_Population']
-        
-        # If constant price data is available, also adjust it with PPP
-        if 'Public_Health_Expenditure_Constant' in merged.columns:
-            merged['Public_Health_Expenditure_Constant_PPP'] = np.nan
-            merged['Public_Health_Expenditure_per_Std_Capita_Constant_PPP'] = np.nan
-            
-            valid_public_const_mask = valid_ppp_mask & ~merged['Public_Health_Expenditure_Constant'].isna()
-            
-            merged.loc[valid_public_const_mask, 'Public_Health_Expenditure_Constant_PPP'] = merged.loc[valid_public_const_mask, 'Public_Health_Expenditure_Constant'] / merged.loc[valid_public_const_mask, 'PPP_Factor']
-            merged.loc[valid_public_const_mask, 'Public_Health_Expenditure_per_Std_Capita_Constant_PPP'] = merged.loc[valid_public_const_mask, 'Public_Health_Expenditure_Constant_PPP'] / merged.loc[valid_public_const_mask, 'Standardized_Population']
-    
-    # Adjust private health expenditure if available
-    if 'Private_Health_Expenditure' in merged.columns:
-        merged['Private_Health_Expenditure_PPP'] = np.nan
-        merged['Private_Health_Expenditure_per_Std_Capita_PPP'] = np.nan
-        
-        valid_private_mask = valid_ppp_mask & ~merged['Private_Health_Expenditure'].isna()
-        
-        merged.loc[valid_private_mask, 'Private_Health_Expenditure_PPP'] = merged.loc[valid_private_mask, 'Private_Health_Expenditure'] / merged.loc[valid_private_mask, 'PPP_Factor']
-        merged.loc[valid_private_mask, 'Private_Health_Expenditure_per_Std_Capita_PPP'] = merged.loc[valid_private_mask, 'Private_Health_Expenditure_PPP'] / merged.loc[valid_private_mask, 'Standardized_Population']
-        
-        # If constant price data is available, also adjust it with PPP
-        if 'Private_Health_Expenditure_Constant' in merged.columns:
-            merged['Private_Health_Expenditure_Constant_PPP'] = np.nan
-            merged['Private_Health_Expenditure_per_Std_Capita_Constant_PPP'] = np.nan
-            
-            valid_private_const_mask = valid_ppp_mask & ~merged['Private_Health_Expenditure_Constant'].isna()
-            
-            merged.loc[valid_private_const_mask, 'Private_Health_Expenditure_Constant_PPP'] = merged.loc[valid_private_const_mask, 'Private_Health_Expenditure_Constant'] / merged.loc[valid_private_const_mask, 'PPP_Factor']
-            merged.loc[valid_private_const_mask, 'Private_Health_Expenditure_per_Std_Capita_Constant_PPP'] = merged.loc[valid_private_const_mask, 'Private_Health_Expenditure_Constant_PPP'] / merged.loc[valid_private_const_mask, 'Standardized_Population']
-    
-    return merged
+    return True
 
-def apply_constant_ppp_adjustment(data, ppp_data, base_country_iso="USA", reference_year=2017, impute_missing=False):
+def _apply_ppp_to_expenditure(df, expenditure_column, ppp_mask, suffix='PPP'):
     """
-    Apply constant PPP adjustment to health expenditure data using only the reference year PPP factors.
+    Apply PPP adjustment to health expenditure values.
     
     Args:
-        data: DataFrame with health expenditure data (with ISO3 codes)
-        ppp_data: DataFrame with PPP conversion factors (with ISO3 codes)
-        base_country_iso: Base country ISO3 code for PPP comparisons (default: "USA")
-        reference_year: Reference year for PPP factors (default: 2017)
-        impute_missing: Whether to impute missing PPP factors (default: False)
-    
+        df: DataFrame with health expenditure and PPP data
+        expenditure_column: Column name for the expenditure to adjust
+        ppp_mask: Boolean mask for rows with valid PPP factors
+        suffix: Suffix for output column names
+        
     Returns:
-        DataFrame with constant PPP-adjusted health expenditure
+        DataFrame with added PPP-adjusted columns
     """
-    print(f"Applying constant PPP adjustment using {reference_year} as reference year...")
+    # Create a copy to avoid modifying the input
+    result = df.copy()
     
-    # Make a copy to avoid modifying the original data
-    adjusted_data = data.copy()
+    # Create mask for valid expenditure rows (valid PPP and non-null expenditure)
+    valid_exp_mask = ppp_mask & ~df[expenditure_column].isna()
     
-    # Filter PPP data to only include the reference year
-    ref_ppp_data = ppp_data[ppp_data['Year'] == reference_year].copy()
+    # Define output column names
+    ppp_col = f"{expenditure_column}_{suffix}"
+    per_capita_col = f"{expenditure_column}_per_Std_Capita_{suffix}"
     
-    if ref_ppp_data.empty:
-        print(f"Warning: No PPP data available for reference year {reference_year}")
-        print("Looking for nearest available year...")
+    # Initialize output columns
+    result[ppp_col] = np.nan
+    result[per_capita_col] = np.nan
+    
+    # Calculate PPP-adjusted values
+    # Formula: ppp_adjusted = expenditure / ppp_factor
+    result.loc[valid_exp_mask, ppp_col] = (
+        result.loc[valid_exp_mask, expenditure_column] / 
+        result.loc[valid_exp_mask, 'PPP_Factor']
+    )
+    
+    # Calculate per standardized capita values if standardized population is available
+    if 'Standardized_Population' in result.columns:
+        valid_capita_mask = valid_exp_mask & (result['Standardized_Population'] > 0)
         
-        # Find the nearest available year to the reference year
-        all_years = sorted(ppp_data['Year'].unique())
-        if not all_years:
-            print("Error: No PPP data available at all")
-            return adjusted_data
-            
-        nearest_year = min(all_years, key=lambda x: abs(x - reference_year))
-        print(f"Using PPP data from {nearest_year} as reference (closest to {reference_year})")
-        ref_ppp_data = ppp_data[ppp_data['Year'] == nearest_year].copy()
-    
-    # Create a mapping of ISO3 -> PPP_Factor from the reference year
-    ppp_mapping = ref_ppp_data[['ISO3', 'PPP_Factor']].drop_duplicates('ISO3').set_index('ISO3')['PPP_Factor'].to_dict()
-    
-    # Check if the base country has a PPP factor
-    if base_country_iso not in ppp_mapping:
-        print(f"Warning: Base country {base_country_iso} does not have a PPP factor for reference year")
-        return adjusted_data
-        
-    # Add a column with constant PPP factors to the adjusted data
-    adjusted_data['Constant_PPP_Factor'] = adjusted_data['ISO3'].map(ppp_mapping)
-    
-    # Check if any PPP factors are missing
-    missing_ppp = adjusted_data['Constant_PPP_Factor'].isna().sum()
-    if missing_ppp > 0:
-        print(f"Warning: Missing PPP factors for {missing_ppp} out of {len(adjusted_data)} rows")
-        
-        if impute_missing:
-            print("Attempting to impute missing PPP factors...")
-            
-            # For each ISO3 with missing values, try to find the closest year with PPP data
-            for iso3 in adjusted_data[adjusted_data['Constant_PPP_Factor'].isna()]['ISO3'].unique():
-                # Get all PPP data for this country
-                country_ppp = ppp_data[ppp_data['ISO3'] == iso3]
-                
-                if not country_ppp.empty:
-                    # Get the closest year to reference year
-                    closest_year = min(country_ppp['Year'].unique(), key=lambda x: abs(x - reference_year))
-                    closest_ppp = country_ppp[country_ppp['Year'] == closest_year]['PPP_Factor'].iloc[0]
-                    
-                    # Apply this PPP factor to all rows with this ISO3
-                    adjusted_data.loc[adjusted_data['ISO3'] == iso3, 'Constant_PPP_Factor'] = closest_ppp
-                    
-                    # Display country name if available
-                    if 'Country' in adjusted_data.columns:
-                        country_name = adjusted_data.loc[adjusted_data['ISO3'] == iso3, 'Country'].iloc[0]
-                        print(f"Imputed constant PPP factor for {country_name} ({iso3}) using data from {closest_year}")
-                    else:
-                        print(f"Imputed constant PPP factor for ISO3: {iso3} using data from {closest_year}")
-    
-    # Create a mask for rows with valid PPP factors
-    valid_ppp_mask = ~adjusted_data['Constant_PPP_Factor'].isna()
-    
-    # Adjust total health expenditure
-    if 'Total_Health_Expenditure' in adjusted_data.columns:
-        # Initialize columns with NaN
-        adjusted_data['Total_Health_Expenditure_Constant_PPP'] = np.nan
-        adjusted_data['Total_Health_Expenditure_per_Std_Capita_Constant_PPP'] = np.nan
-        
-        # Calculate for valid rows
-        # If already have constant price data, use that, otherwise use current prices
-        if 'Total_Health_Expenditure_Constant' in adjusted_data.columns:
-            adjusted_data.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant_PPP'] = (
-                adjusted_data.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant'] / 
-                adjusted_data.loc[valid_ppp_mask, 'Constant_PPP_Factor']
-            )
-        else:
-            # Warning about using current prices without GDP deflator adjustment
-            print("Warning: GDP deflator data not available, using current prices with constant PPP")
-            adjusted_data.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant_PPP'] = (
-                adjusted_data.loc[valid_ppp_mask, 'Total_Health_Expenditure'] / 
-                adjusted_data.loc[valid_ppp_mask, 'Constant_PPP_Factor']
-            )
-        
-        # Calculate per standardized capita
-        adjusted_data.loc[valid_ppp_mask, 'Total_Health_Expenditure_per_Std_Capita_Constant_PPP'] = (
-            adjusted_data.loc[valid_ppp_mask, 'Total_Health_Expenditure_Constant_PPP'] / 
-            adjusted_data.loc[valid_ppp_mask, 'Standardized_Population']
+        result.loc[valid_capita_mask, per_capita_col] = (
+            result.loc[valid_capita_mask, ppp_col] / 
+            result.loc[valid_capita_mask, 'Standardized_Population']
         )
     
-    # Adjust public health expenditure if available
-    if 'Public_Health_Expenditure' in adjusted_data.columns:
-        adjusted_data['Public_Health_Expenditure_Constant_PPP'] = np.nan
-        adjusted_data['Public_Health_Expenditure_per_Std_Capita_Constant_PPP'] = np.nan
-        
-        valid_public_mask = valid_ppp_mask & ~adjusted_data['Public_Health_Expenditure'].isna()
-        
-        # Use constant price data if available
-        if 'Public_Health_Expenditure_Constant' in adjusted_data.columns:
-            adjusted_data.loc[valid_public_mask, 'Public_Health_Expenditure_Constant_PPP'] = (
-                adjusted_data.loc[valid_public_mask, 'Public_Health_Expenditure_Constant'] / 
-                adjusted_data.loc[valid_public_mask, 'Constant_PPP_Factor']
-            )
-        else:
-            adjusted_data.loc[valid_public_mask, 'Public_Health_Expenditure_Constant_PPP'] = (
-                adjusted_data.loc[valid_public_mask, 'Public_Health_Expenditure'] / 
-                adjusted_data.loc[valid_public_mask, 'Constant_PPP_Factor']
-            )
-        
-        adjusted_data.loc[valid_public_mask, 'Public_Health_Expenditure_per_Std_Capita_Constant_PPP'] = (
-            adjusted_data.loc[valid_public_mask, 'Public_Health_Expenditure_Constant_PPP'] / 
-            adjusted_data.loc[valid_public_mask, 'Standardized_Population']
-        )
-    
-    # Adjust private health expenditure if available
-    if 'Private_Health_Expenditure' in adjusted_data.columns:
-        adjusted_data['Private_Health_Expenditure_Constant_PPP'] = np.nan
-        adjusted_data['Private_Health_Expenditure_per_Std_Capita_Constant_PPP'] = np.nan
-        
-        valid_private_mask = valid_ppp_mask & ~adjusted_data['Private_Health_Expenditure'].isna()
-        
-        # Use constant price data if available
-        if 'Private_Health_Expenditure_Constant' in adjusted_data.columns:
-            adjusted_data.loc[valid_private_mask, 'Private_Health_Expenditure_Constant_PPP'] = (
-                adjusted_data.loc[valid_private_mask, 'Private_Health_Expenditure_Constant'] / 
-                adjusted_data.loc[valid_private_mask, 'Constant_PPP_Factor']
-            )
-        else:
-            adjusted_data.loc[valid_private_mask, 'Private_Health_Expenditure_Constant_PPP'] = (
-                adjusted_data.loc[valid_private_mask, 'Private_Health_Expenditure'] / 
-                adjusted_data.loc[valid_private_mask, 'Constant_PPP_Factor']
-            )
-        
-        adjusted_data.loc[valid_private_mask, 'Private_Health_Expenditure_per_Std_Capita_Constant_PPP'] = (
-            adjusted_data.loc[valid_private_mask, 'Private_Health_Expenditure_Constant_PPP'] / 
-            adjusted_data.loc[valid_private_mask, 'Standardized_Population']
-        )
-    
-    # Drop the temporary column used for calculations
-    adjusted_data = adjusted_data.drop(columns=['Constant_PPP_Factor'])
-    
-    return adjusted_data
+    return result
 
-def calculate_all_expenditure_indicators(ghed_data, standardized_pop, ppp_data=None, gdp_deflator=None, impute_missing_ppp=False, impute_missing_gdp=False, reference_year=2017, formula_type='israeli'):
+def calculate_all_expenditure_indicators(ghed_data, standardized_pop, ppp_data=None, gdp_deflator=None, 
+                               impute_missing_ppp=False, impute_missing_gdp=False, reference_year=2017, formula_type='israeli'):
     """
-    Calculate health expenditure per standardized capita with all combinations of price and PPP adjustments:
-    - Current prices, Current PPP
-    - Current prices, Constant PPP
-    - Constant prices, Current PPP
-    - Constant prices, Constant PPP
+    Calculate health expenditure per standardized capita with all combinations of price and PPP adjustments.
     
     Args:
-        ghed_data: DataFrame with GHED data (with ISO3 codes)
-        standardized_pop: DataFrame with standardized population data (with ISO3 codes)
-        ppp_data: DataFrame with PPP conversion factors (optional, with ISO3 codes)
-        gdp_deflator: DataFrame with GDP deflators (optional, with ISO3 codes)
-        impute_missing_ppp: Whether to impute missing PPP factors
-        impute_missing_gdp: Whether to impute missing GDP deflators
-        reference_year: Reference year for constant prices and PPP
-        formula_type: Type of capitation formula used ('israeli', 'ltc', or 'eu27')
+        ghed_data (DataFrame): GHED data with ISO3 codes
+        standardized_pop (DataFrame): Standardized population data with ISO3 codes
+        ppp_data (DataFrame, optional): PPP conversion factors. Defaults to None.
+        gdp_deflator (DataFrame, optional): GDP deflators. Defaults to None.
+        impute_missing_ppp (bool, optional): Whether to impute missing PPP factors. Defaults to False.
+        impute_missing_gdp (bool, optional): Whether to impute missing GDP deflators. Defaults to False.
+        reference_year (int, optional): Reference year for constant prices and PPP. Defaults to 2017.
+        formula_type (str, optional): Type of capitation formula used. Defaults to 'israeli'.
     
     Returns:
-        DataFrame with all health expenditure indicators
+        DataFrame: Health expenditure indicators with various adjustments
     """
-    print("Calculating comprehensive health expenditure indicators...")
+    logger.info("Calculating comprehensive health expenditure indicators...")
     
-    # Rename columns for consistency
+    # Step 1: Prepare and merge the data
+    merged_data = _prepare_merged_dataset(ghed_data, standardized_pop)
+    
+    # Record dataset statistics
+    num_countries = merged_data['ISO3'].nunique()
+    num_years = merged_data['Year'].nunique()
+    logger.info(f"Working with data for {num_countries} countries over {num_years} years")
+    
+    # Step 2: Calculate base metrics with current prices (no adjustments)
+    merged_data = _calculate_base_indicators(merged_data)
+    
+    # Step 3: Apply GDP deflator for constant prices (if data available)
+    if gdp_deflator is not None and not gdp_deflator.empty:
+        merged_data = _apply_constant_price_adjustment(
+            merged_data, 
+            gdp_deflator, 
+            reference_year,
+            impute_missing=impute_missing_gdp
+        )
+    else:
+        logger.info("Skipping GDP deflator adjustment as no data is available")
+    
+    # Step 4: Apply current-year PPP adjustment (if data available)
+    if ppp_data is not None and not ppp_data.empty:
+        merged_data = _apply_current_ppp_adjustment(
+            merged_data, 
+            ppp_data,
+            impute_missing=impute_missing_ppp
+        )
+    else:
+        logger.info("Skipping current-year PPP adjustment as no data is available")
+    
+    # Step 5: Apply constant (reference year) PPP adjustment (if data available)
+    if ppp_data is not None and not ppp_data.empty:
+        merged_data = _apply_constant_ppp_adjustment(
+            merged_data, 
+            ppp_data, 
+            reference_year,
+            impute_missing=impute_missing_ppp
+        )
+    else:
+        logger.info("Skipping constant PPP adjustment as no data is available")
+    
+    return merged_data
+
+def _prepare_merged_dataset(ghed_data, standardized_pop):
+    """
+    Prepare and merge GHED data with standardized population data.
+    
+    Args:
+        ghed_data (DataFrame): GHED data
+        standardized_pop (DataFrame): Standardized population data
+    
+    Returns:
+        DataFrame: Merged dataset with standardized column names
+    """
+    logger.info("Preparing and merging datasets...")
+    
+    # Rename GHED columns for consistency
     ghed_renamed = ghed_data.rename(columns={
         'location': 'Country_GHED',
         'year': 'Year',
@@ -1316,7 +1507,7 @@ def calculate_all_expenditure_indicators(ghed_data, standardized_pop, ppp_data=N
         'private_expenditure': 'Private_Health_Expenditure'
     })
     
-    # Select only necessary columns from standardized_pop
+    # Select necessary columns from standardized population data
     std_pop_selected = standardized_pop[['ISO3', 'Year', 'Standardized_Population']].copy()
     if 'Country' in standardized_pop.columns:
         std_pop_selected['Country_StdPop'] = standardized_pop['Country']
@@ -1329,7 +1520,7 @@ def calculate_all_expenditure_indicators(ghed_data, standardized_pop, ppp_data=N
         how="inner"
     )
     
-    # Create a single Country column
+    # Create a single Country column from available sources
     if 'Country_GHED' in merged_data.columns and 'Country_StdPop' in merged_data.columns:
         merged_data['Country'] = merged_data['Country_GHED'].combine_first(merged_data['Country_StdPop'])
         merged_data = merged_data.drop(columns=['Country_GHED', 'Country_StdPop'])
@@ -1338,436 +1529,355 @@ def calculate_all_expenditure_indicators(ghed_data, standardized_pop, ppp_data=N
     elif 'Country_StdPop' in merged_data.columns:
         merged_data = merged_data.rename(columns={'Country_StdPop': 'Country'})
     
-    # Record the number of countries and years
-    num_countries = merged_data['ISO3'].nunique()
-    num_years = merged_data['Year'].nunique()
-    print(f"Working with data for {num_countries} countries over {num_years} years")
+    logger.debug(f"Merged dataset created with shape: {merged_data.shape}")
+    return merged_data
+
+def _calculate_base_indicators(data):
+    """
+    Calculate base health expenditure indicators with current prices.
     
-    # STEP 1: Calculate base indicators with current prices (no adjustments yet)
-    print("Step 1: Calculating base indicators with current prices...")
+    Args:
+        data (DataFrame): Merged dataset with health expenditure and standardized population
+    
+    Returns:
+        DataFrame: Dataset with base indicators added
+    """
+    logger.info("Calculating base indicators with current prices...")
+    result = data.copy()
     
     # Calculate total health expenditure per standardized capita
-    merged_data["THE_per_Std_Capita_Current"] = merged_data["Total_Health_Expenditure"] / merged_data["Standardized_Population"]
+    result["THE_per_Std_Capita_Current"] = result["Total_Health_Expenditure"] / result["Standardized_Population"]
     
-    # Calculate public and private expenditure per standardized capita if available
-    if 'Public_Health_Expenditure' in merged_data.columns and not merged_data['Public_Health_Expenditure'].isna().all():
-        merged_data["PubHE_per_Std_Capita_Current"] = merged_data["Public_Health_Expenditure"] / merged_data["Standardized_Population"]
+    # Calculate public health expenditure per standardized capita if available
+    if 'Public_Health_Expenditure' in result.columns and not result['Public_Health_Expenditure'].isna().all():
+        result["PubHE_per_Std_Capita_Current"] = result["Public_Health_Expenditure"] / result["Standardized_Population"]
     
-    if 'Private_Health_Expenditure' in merged_data.columns and not merged_data['Private_Health_Expenditure'].isna().all():
-        merged_data["PvtHE_per_Std_Capita_Current"] = merged_data["Private_Health_Expenditure"] / merged_data["Standardized_Population"]
+    # Calculate private health expenditure per standardized capita if available
+    if 'Private_Health_Expenditure' in result.columns and not result['Private_Health_Expenditure'].isna().all():
+        result["PvtHE_per_Std_Capita_Current"] = result["Private_Health_Expenditure"] / result["Standardized_Population"]
     
+    return result
 
-    # STEP 2: Apply GDP deflator adjustment for constant prices
-    if gdp_deflator is not None and not gdp_deflator.empty:
-        print("Step 2: Applying GDP deflator adjustment for constant prices...")
-        
-        # Merge with GDP deflator data
-        merged_gdp = pd.merge(
-            merged_data,
-            gdp_deflator[['ISO3', 'Year', 'GDP_Deflator']],
-            on=['ISO3', 'Year'],
-            how='left'
-        )
-        
-        # Check if any GDP deflators are missing
-        missing_deflator = merged_gdp['GDP_Deflator'].isna().sum()
-        if missing_deflator > 0:
-            print(f"Warning: Missing GDP deflators for {missing_deflator} out of {len(merged_gdp)} rows")
-            
-            # Impute missing GDP deflators if enabled
-            if impute_missing_gdp:
-                print(f"Imputing missing GDP deflators...")
-                countries_with_missing = merged_gdp[merged_gdp['GDP_Deflator'].isna()]['ISO3'].unique()
-                
-                for iso3 in countries_with_missing:
-                    country_data = merged_gdp[merged_gdp['ISO3'] == iso3]
-                    missing_years = country_data[country_data['GDP_Deflator'].isna()]['Year'].tolist()
-                    
-                    # If country has any deflator data, use nearest year
-                    if any(~country_data['GDP_Deflator'].isna()):
-                        available_years = country_data[~country_data['GDP_Deflator'].isna()]['Year'].tolist()
-                        
-                        for missing_year in missing_years:
-                            # Find closest available year
-                            closest_year = min(available_years, key=lambda x: abs(x - missing_year))
-                            closest_deflator = country_data[country_data['Year'] == closest_year]['GDP_Deflator'].iloc[0]
-                            
-                            # Impute the missing value
-                            idx = merged_gdp[(merged_gdp['ISO3'] == iso3) & (merged_gdp['Year'] == missing_year)].index
-                            merged_gdp.loc[idx, 'GDP_Deflator'] = closest_deflator
-                            
-                            country_name = merged_gdp.loc[merged_gdp['ISO3'] == iso3, 'Country'].iloc[0]
-                            print(f"Imputed GDP deflator for {country_name} ({iso3}) in year {missing_year} using data from {closest_year}")
-        
-        # Create mask for valid deflator values
-        valid_deflator_mask = ~merged_gdp['GDP_Deflator'].isna()
-        
-        # Calculate constant price values for Total Health Expenditure
-        merged_gdp['THE_Constant'] = np.nan
-        merged_gdp['THE_per_Std_Capita_Constant'] = np.nan
-        
-        merged_gdp.loc[valid_deflator_mask, 'THE_Constant'] = (
-            merged_gdp.loc[valid_deflator_mask, 'Total_Health_Expenditure'] / 
-            merged_gdp.loc[valid_deflator_mask, 'GDP_Deflator']
-        )
-        
-        merged_gdp.loc[valid_deflator_mask, 'THE_per_Std_Capita_Constant'] = (
-            merged_gdp.loc[valid_deflator_mask, 'THE_Constant'] / 
-            merged_gdp.loc[valid_deflator_mask, 'Standardized_Population']
-        )
-        
-        # Calculate constant price values for Public Health Expenditure if available
-        if 'Public_Health_Expenditure' in merged_gdp.columns:
-            merged_gdp['PubHE_Constant'] = np.nan
-            merged_gdp['PubHE_per_Std_Capita_Constant'] = np.nan
-            
-            valid_public_mask = valid_deflator_mask & ~merged_gdp['Public_Health_Expenditure'].isna()
-            
-            merged_gdp.loc[valid_public_mask, 'PubHE_Constant'] = (
-                merged_gdp.loc[valid_public_mask, 'Public_Health_Expenditure'] / 
-                merged_gdp.loc[valid_public_mask, 'GDP_Deflator']
-            )
-            
-            merged_gdp.loc[valid_public_mask, 'PubHE_per_Std_Capita_Constant'] = (
-                merged_gdp.loc[valid_public_mask, 'PubHE_Constant'] / 
-                merged_gdp.loc[valid_public_mask, 'Standardized_Population']
-            )
-        
-        # Calculate constant price values for Private Health Expenditure if available
-        if 'Private_Health_Expenditure' in merged_gdp.columns:
-            merged_gdp['PvtHE_Constant'] = np.nan
-            merged_gdp['PvtHE_per_Std_Capita_Constant'] = np.nan
-            
-            valid_private_mask = valid_deflator_mask & ~merged_gdp['Private_Health_Expenditure'].isna()
-            
-            merged_gdp.loc[valid_private_mask, 'PvtHE_Constant'] = (
-                merged_gdp.loc[valid_private_mask, 'Private_Health_Expenditure'] / 
-                merged_gdp.loc[valid_private_mask, 'GDP_Deflator']
-            )
-            
-            merged_gdp.loc[valid_private_mask, 'PvtHE_per_Std_Capita_Constant'] = (
-                merged_gdp.loc[valid_private_mask, 'PvtHE_Constant'] / 
-                merged_gdp.loc[valid_private_mask, 'Standardized_Population']
-            )
-        
-        # Update merged_data with constant price calculations
-        merged_data = merged_gdp
-    else:
-        print("Step 2: Skipping GDP deflator adjustment as no data is available")
+def _apply_constant_price_adjustment(data, gdp_deflator, reference_year, impute_missing=False):
+    """
+    Apply GDP deflator adjustment to get constant price indicators.
     
+    Args:
+        data (DataFrame): Dataset with base indicators
+        gdp_deflator (DataFrame): GDP deflator data
+        reference_year (int): Reference year for constant prices
+        impute_missing (bool, optional): Whether to impute missing GDP deflators. Defaults to False.
     
-    # STEP 3: Apply current-year PPP adjustment
-    if ppp_data is not None and not ppp_data.empty:
-        print("Step 3: Applying current-year PPP adjustment...")
-        
-        # Merge with PPP data
-        merged_ppp = pd.merge(
-            merged_data,
-            ppp_data[['ISO3', 'Year', 'PPP_Factor']],
-            on=['ISO3', 'Year'],
-            how='left'
-        )
-        
-        # Check if any PPP factors are missing
-        missing_ppp = merged_ppp['PPP_Factor'].isna().sum()
-        if missing_ppp > 0:
-            print(f"Warning: Missing PPP factors for {missing_ppp} out of {len(merged_ppp)} rows")
-            
-            # Impute missing PPP factors if enabled
-            if impute_missing_ppp:
-                print(f"Imputing missing PPP factors...")
-                countries_with_missing = merged_ppp[merged_ppp['PPP_Factor'].isna()]['ISO3'].unique()
-                
-                for iso3 in countries_with_missing:
-                    country_data = merged_ppp[merged_ppp['ISO3'] == iso3]
-                    missing_years = country_data[country_data['PPP_Factor'].isna()]['Year'].tolist()
-                    
-                    # If country has any PPP data, use nearest year
-                    if any(~country_data['PPP_Factor'].isna()):
-                        available_years = country_data[~country_data['PPP_Factor'].isna()]['Year'].tolist()
-                        
-                        for missing_year in missing_years:
-                            # Find closest available year
-                            closest_year = min(available_years, key=lambda x: abs(x - missing_year))
-                            closest_ppp = country_data[country_data['Year'] == closest_year]['PPP_Factor'].iloc[0]
-                            
-                            # Impute the missing value
-                            idx = merged_ppp[(merged_ppp['ISO3'] == iso3) & (merged_ppp['Year'] == missing_year)].index
-                            merged_ppp.loc[idx, 'PPP_Factor'] = closest_ppp
-                            
-                            country_name = merged_ppp.loc[merged_ppp['ISO3'] == iso3, 'Country'].iloc[0]
-                            print(f"Imputed PPP factor for {country_name} ({iso3}) in year {missing_year} using data from {closest_year}")
-        
-        # Create mask for valid PPP factors
-        valid_ppp_mask = ~merged_ppp['PPP_Factor'].isna()
-        
-        # Calculate current PPP values for current price Total Health Expenditure
-        merged_ppp['THE_CurrentPPP'] = np.nan
-        merged_ppp['THE_per_Std_Capita_CurrentPPP'] = np.nan
-        
-        merged_ppp.loc[valid_ppp_mask, 'THE_CurrentPPP'] = (
-            merged_ppp.loc[valid_ppp_mask, 'Total_Health_Expenditure'] / 
-            merged_ppp.loc[valid_ppp_mask, 'PPP_Factor']
-        )
-        
-        merged_ppp.loc[valid_ppp_mask, 'THE_per_Std_Capita_CurrentPPP'] = (
-            merged_ppp.loc[valid_ppp_mask, 'THE_CurrentPPP'] / 
-            merged_ppp.loc[valid_ppp_mask, 'Standardized_Population']
-        )
-        
-        # Calculate current PPP values for current price Public Health Expenditure if available
-        if 'Public_Health_Expenditure' in merged_ppp.columns:
-            merged_ppp['PubHE_CurrentPPP'] = np.nan
-            merged_ppp['PubHE_per_Std_Capita_CurrentPPP'] = np.nan
-            
-            valid_public_mask = valid_ppp_mask & ~merged_ppp['Public_Health_Expenditure'].isna()
-            
-            merged_ppp.loc[valid_public_mask, 'PubHE_CurrentPPP'] = (
-                merged_ppp.loc[valid_public_mask, 'Public_Health_Expenditure'] / 
-                merged_ppp.loc[valid_public_mask, 'PPP_Factor']
-            )
-            
-            merged_ppp.loc[valid_public_mask, 'PubHE_per_Std_Capita_CurrentPPP'] = (
-                merged_ppp.loc[valid_public_mask, 'PubHE_CurrentPPP'] / 
-                merged_ppp.loc[valid_public_mask, 'Standardized_Population']
-            )
-        
-        # Calculate current PPP values for current price Private Health Expenditure if available
-        if 'Private_Health_Expenditure' in merged_ppp.columns:
-            merged_ppp['PvtHE_CurrentPPP'] = np.nan
-            merged_ppp['PvtHE_per_Std_Capita_CurrentPPP'] = np.nan
-            
-            valid_private_mask = valid_ppp_mask & ~merged_ppp['Private_Health_Expenditure'].isna()
-            
-            merged_ppp.loc[valid_private_mask, 'PvtHE_CurrentPPP'] = (
-                merged_ppp.loc[valid_private_mask, 'Private_Health_Expenditure'] / 
-                merged_ppp.loc[valid_private_mask, 'PPP_Factor']
-            )
-            
-            merged_ppp.loc[valid_private_mask, 'PvtHE_per_Std_Capita_CurrentPPP'] = (
-                merged_ppp.loc[valid_private_mask, 'PvtHE_CurrentPPP'] / 
-                merged_ppp.loc[valid_private_mask, 'Standardized_Population']
-            )
-        
-        # If constant price data is available, also apply current PPP
-        if 'THE_Constant' in merged_ppp.columns:
-            merged_ppp['THE_Constant_CurrentPPP'] = np.nan
-            merged_ppp['THE_per_Std_Capita_Constant_CurrentPPP'] = np.nan
-            
-            merged_ppp.loc[valid_ppp_mask, 'THE_Constant_CurrentPPP'] = (
-                merged_ppp.loc[valid_ppp_mask, 'THE_Constant'] / 
-                merged_ppp.loc[valid_ppp_mask, 'PPP_Factor']
-            )
-            
-            merged_ppp.loc[valid_ppp_mask, 'THE_per_Std_Capita_Constant_CurrentPPP'] = (
-                merged_ppp.loc[valid_ppp_mask, 'THE_Constant_CurrentPPP'] / 
-                merged_ppp.loc[valid_ppp_mask, 'Standardized_Population']
-            )
-        
-        if 'PubHE_Constant' in merged_ppp.columns:
-            merged_ppp['PubHE_Constant_CurrentPPP'] = np.nan
-            merged_ppp['PubHE_per_Std_Capita_Constant_CurrentPPP'] = np.nan
-            
-            valid_public_const_mask = valid_ppp_mask & ~merged_ppp['PubHE_Constant'].isna()
-            
-            merged_ppp.loc[valid_public_const_mask, 'PubHE_Constant_CurrentPPP'] = (
-                merged_ppp.loc[valid_public_const_mask, 'PubHE_Constant'] / 
-                merged_ppp.loc[valid_public_const_mask, 'PPP_Factor']
-            )
-            
-            merged_ppp.loc[valid_public_const_mask, 'PubHE_per_Std_Capita_Constant_CurrentPPP'] = (
-                merged_ppp.loc[valid_public_const_mask, 'PubHE_Constant_CurrentPPP'] / 
-                merged_ppp.loc[valid_public_const_mask, 'Standardized_Population']
-            )
-        
-        if 'PvtHE_Constant' in merged_ppp.columns:
-            merged_ppp['PvtHE_Constant_CurrentPPP'] = np.nan
-            merged_ppp['PvtHE_per_Std_Capita_Constant_CurrentPPP'] = np.nan
-            
-            valid_private_const_mask = valid_ppp_mask & ~merged_ppp['PvtHE_Constant'].isna()
-            
-            merged_ppp.loc[valid_private_const_mask, 'PvtHE_Constant_CurrentPPP'] = (
-                merged_ppp.loc[valid_private_const_mask, 'PvtHE_Constant'] / 
-                merged_ppp.loc[valid_private_const_mask, 'PPP_Factor']
-            )
-            
-            merged_ppp.loc[valid_private_const_mask, 'PvtHE_per_Std_Capita_Constant_CurrentPPP'] = (
-                merged_ppp.loc[valid_private_const_mask, 'PvtHE_Constant_CurrentPPP'] / 
-                merged_ppp.loc[valid_private_const_mask, 'Standardized_Population']
-            )
-        
-        # Update merged_data with current PPP calculations
-        merged_data = merged_ppp
-        
-    else:
-        print("Step 3: Skipping current-year PPP adjustment as no data is available")
+    Returns:
+        DataFrame: Dataset with constant price indicators added
+    """
+    logger.info(f"Applying GDP deflator adjustment for constant prices (reference year: {reference_year})...")
+    result = data.copy()
     
+    # Merge with GDP deflator data
+    result = pd.merge(
+        result,
+        gdp_deflator[['ISO3', 'Year', 'GDP_Deflator']],
+        on=['ISO3', 'Year'],
+        how='left'
+    )
     
-    # STEP 4: Apply constant (reference year) PPP adjustment
-    if ppp_data is not None and not ppp_data.empty:
-        print(f"Step 4: Applying constant PPP adjustment using reference year {reference_year}...")
+    # Handle missing GDP deflators
+    missing_deflator_count = result['GDP_Deflator'].isna().sum()
+    if missing_deflator_count > 0:
+        logger.warning(f"Missing GDP deflators for {missing_deflator_count} out of {len(result)} rows")
         
-        # Filter PPP data to only include the reference year
-        ref_ppp_data = ppp_data[ppp_data['Year'] == reference_year].copy()
-        
-        if ref_ppp_data.empty:
-            print(f"Warning: No PPP data available for reference year {reference_year}")
-            print("Looking for nearest available year...")
+        if impute_missing:
+            result = _impute_missing_values(
+                result, 
+                'GDP_Deflator', 
+                id_columns=['ISO3'],
+                value_label='GDP deflator'
+            )
+    
+    # Create mask for valid deflator values
+    valid_deflator_mask = ~result['GDP_Deflator'].isna()
+    
+    # Define expenditure types to process
+    expenditure_types = [
+        ('Total_Health_Expenditure', 'THE'),
+        ('Public_Health_Expenditure', 'PubHE'),
+        ('Private_Health_Expenditure', 'PvtHE')
+    ]
+    
+    # Apply constant price adjustment to each expenditure type
+    for source_col, prefix in expenditure_types:
+        if source_col in result.columns and not result[source_col].isna().all():
+            # Define output column names
+            constant_col = f"{prefix}_Constant"
+            per_capita_col = f"{prefix}_per_Std_Capita_Constant"
             
-            # Find the nearest available year to the reference year
-            all_years = sorted(ppp_data['Year'].unique())
-            if not all_years:
-                print("Error: No PPP data available at all")
-            else:
-                nearest_year = min(all_years, key=lambda x: abs(x - reference_year))
-                print(f"Using PPP data from {nearest_year} as reference (closest to {reference_year})")
-                ref_ppp_data = ppp_data[ppp_data['Year'] == nearest_year].copy()
-        
-        if not ref_ppp_data.empty:
-            # Create a mapping of ISO3 -> PPP_Factor from the reference year
-            ppp_mapping = ref_ppp_data[['ISO3', 'PPP_Factor']].drop_duplicates('ISO3').set_index('ISO3')['PPP_Factor'].to_dict()
+            # Initialize output columns
+            result[constant_col] = np.nan
+            result[per_capita_col] = np.nan
             
-            # Add a column with constant PPP factors to the data
-            merged_data['Constant_PPP_Factor'] = merged_data['ISO3'].map(ppp_mapping)
+            # Calculate constant price values
+            valid_mask = valid_deflator_mask & ~result[source_col].isna()
             
-            # Check if any constant PPP factors are missing
-            missing_const_ppp = merged_data['Constant_PPP_Factor'].isna().sum()
-            if missing_const_ppp > 0:
-                print(f"Warning: Missing constant PPP factors for {missing_const_ppp} out of {len(merged_data)} rows")
-                
-                if impute_missing_ppp:
-                    print("Attempting to impute missing constant PPP factors...")
-                    
-                    # For each ISO3 with missing values, try to find PPP data for any year
-                    for iso3 in merged_data[merged_data['Constant_PPP_Factor'].isna()]['ISO3'].unique():
-                        # Get all PPP data for this country
-                        country_ppp = ppp_data[ppp_data['ISO3'] == iso3]
-                        
-                        if not country_ppp.empty:
-                            # Get the closest year to reference year
-                            closest_year = min(country_ppp['Year'].unique(), key=lambda x: abs(x - reference_year))
-                            closest_ppp = country_ppp[country_ppp['Year'] == closest_year]['PPP_Factor'].iloc[0]
-                            
-                            # Apply this PPP factor to all rows with this ISO3
-                            merged_data.loc[merged_data['ISO3'] == iso3, 'Constant_PPP_Factor'] = closest_ppp
-                            
-                            country_name = merged_data.loc[merged_data['ISO3'] == iso3, 'Country'].iloc[0]
-                            print(f"Imputed constant PPP factor for {country_name} ({iso3}) using data from {closest_year}")
-            
-            # Create a mask for rows with valid constant PPP factors
-            valid_const_ppp_mask = ~merged_data['Constant_PPP_Factor'].isna()
-            
-            # Apply constant PPP adjustment to current price values
-            merged_data['THE_ConstantPPP'] = np.nan
-            merged_data['THE_per_Std_Capita_ConstantPPP'] = np.nan
-            
-            merged_data.loc[valid_const_ppp_mask, 'THE_ConstantPPP'] = (
-                merged_data.loc[valid_const_ppp_mask, 'Total_Health_Expenditure'] / 
-                merged_data.loc[valid_const_ppp_mask, 'Constant_PPP_Factor']
+            result.loc[valid_mask, constant_col] = (
+                result.loc[valid_mask, source_col] / 
+                result.loc[valid_mask, 'GDP_Deflator']
             )
             
-            merged_data.loc[valid_const_ppp_mask, 'THE_per_Std_Capita_ConstantPPP'] = (
-                merged_data.loc[valid_const_ppp_mask, 'THE_ConstantPPP'] / 
-                merged_data.loc[valid_const_ppp_mask, 'Standardized_Population']
+            result.loc[valid_mask, per_capita_col] = (
+                result.loc[valid_mask, constant_col] / 
+                result.loc[valid_mask, 'Standardized_Population']
+            )
+    
+    return result
+
+def _apply_current_ppp_adjustment(data, ppp_data, impute_missing=False):
+    """
+    Apply current-year PPP adjustment to health expenditure indicators.
+    
+    Args:
+        data (DataFrame): Dataset with current and constant price indicators
+        ppp_data (DataFrame): PPP conversion factor data
+        impute_missing (bool, optional): Whether to impute missing PPP factors. Defaults to False.
+    
+    Returns:
+        DataFrame: Dataset with current PPP indicators added
+    """
+    logger.info("Applying current-year PPP adjustment...")
+    result = data.copy()
+    
+    # Merge with PPP data
+    result = pd.merge(
+        result,
+        ppp_data[['ISO3', 'Year', 'PPP_Factor']],
+        on=['ISO3', 'Year'],
+        how='left'
+    )
+    
+    # Handle missing PPP factors
+    missing_ppp_count = result['PPP_Factor'].isna().sum()
+    if missing_ppp_count > 0:
+        logger.warning(f"Missing PPP factors for {missing_ppp_count} out of {len(result)} rows")
+        
+        if impute_missing:
+            result = _impute_missing_values(
+                result, 
+                'PPP_Factor', 
+                id_columns=['ISO3'],
+                value_label='PPP factor'
+            )
+    
+    # Create mask for valid PPP factors
+    valid_ppp_mask = ~result['PPP_Factor'].isna()
+    
+    # Define expenditure types and adjustments to process
+    adjustments = [
+        # Current prices with current PPP
+        ('Total_Health_Expenditure', 'THE', 'CurrentPPP'),
+        ('Public_Health_Expenditure', 'PubHE', 'CurrentPPP'),
+        ('Private_Health_Expenditure', 'PvtHE', 'CurrentPPP'),
+        
+        # Constant prices with current PPP
+        ('THE_Constant', 'THE', 'Constant_CurrentPPP'),
+        ('PubHE_Constant', 'PubHE', 'Constant_CurrentPPP'),
+        ('PvtHE_Constant', 'PvtHE', 'Constant_CurrentPPP')
+    ]
+    
+    # Apply PPP adjustment to each combination
+    for source_col, prefix, suffix in adjustments:
+        if source_col in result.columns and not result[source_col].isna().all():
+            # Define output column names
+            ppp_col = f"{prefix}_{suffix}"
+            per_capita_col = f"{prefix}_per_Std_Capita_{suffix}"
+            
+            # Initialize output columns
+            result[ppp_col] = np.nan
+            result[per_capita_col] = np.nan
+            
+            # Calculate PPP-adjusted values
+            valid_mask = valid_ppp_mask & ~result[source_col].isna()
+            
+            result.loc[valid_mask, ppp_col] = (
+                result.loc[valid_mask, source_col] / 
+                result.loc[valid_mask, 'PPP_Factor']
             )
             
-            # Apply constant PPP adjustment to current price public health expenditure if available
-            if 'Public_Health_Expenditure' in merged_data.columns:
-                merged_data['PubHE_ConstantPPP'] = np.nan
-                merged_data['PubHE_per_Std_Capita_ConstantPPP'] = np.nan
-                
-                valid_public_mask = valid_const_ppp_mask & ~merged_data['Public_Health_Expenditure'].isna()
-                
-                merged_data.loc[valid_public_mask, 'PubHE_ConstantPPP'] = (
-                    merged_data.loc[valid_public_mask, 'Public_Health_Expenditure'] / 
-                    merged_data.loc[valid_public_mask, 'Constant_PPP_Factor']
-                )
-                
-                merged_data.loc[valid_public_mask, 'PubHE_per_Std_Capita_ConstantPPP'] = (
-                    merged_data.loc[valid_public_mask, 'PubHE_ConstantPPP'] / 
-                    merged_data.loc[valid_public_mask, 'Standardized_Population']
-                )
-            
-            # Apply constant PPP adjustment to current price private health expenditure if available
-            if 'Private_Health_Expenditure' in merged_data.columns:
-                merged_data['PvtHE_ConstantPPP'] = np.nan
-                merged_data['PvtHE_per_Std_Capita_ConstantPPP'] = np.nan
-                
-                valid_private_mask = valid_const_ppp_mask & ~merged_data['Private_Health_Expenditure'].isna()
-                
-                merged_data.loc[valid_private_mask, 'PvtHE_ConstantPPP'] = (
-                    merged_data.loc[valid_private_mask, 'Private_Health_Expenditure'] / 
-                    merged_data.loc[valid_private_mask, 'Constant_PPP_Factor']
-                )
-                
-                merged_data.loc[valid_private_mask, 'PvtHE_per_Std_Capita_ConstantPPP'] = (
-                    merged_data.loc[valid_private_mask, 'PvtHE_ConstantPPP'] / 
-                    merged_data.loc[valid_private_mask, 'Standardized_Population']
-                )
-            
-            # Apply constant PPP adjustment to constant price values if available
-            if 'THE_Constant' in merged_data.columns:
-                merged_data['THE_Constant_ConstantPPP'] = np.nan
-                merged_data['THE_per_Std_Capita_Constant_ConstantPPP'] = np.nan
-                
-                valid_const_mask = valid_const_ppp_mask & ~merged_data['THE_Constant'].isna()
-                
-                merged_data.loc[valid_const_mask, 'THE_Constant_ConstantPPP'] = (
-                    merged_data.loc[valid_const_mask, 'THE_Constant'] / 
-                    merged_data.loc[valid_const_mask, 'Constant_PPP_Factor']
-                )
-                
-                merged_data.loc[valid_const_mask, 'THE_per_Std_Capita_Constant_ConstantPPP'] = (
-                    merged_data.loc[valid_const_mask, 'THE_Constant_ConstantPPP'] / 
-                    merged_data.loc[valid_const_mask, 'Standardized_Population']
-                )
-            
-            if 'PubHE_Constant' in merged_data.columns:
-                merged_data['PubHE_Constant_ConstantPPP'] = np.nan
-                merged_data['PubHE_per_Std_Capita_Constant_ConstantPPP'] = np.nan
-                
-                valid_public_const_mask = valid_const_ppp_mask & ~merged_data['PubHE_Constant'].isna()
-                
-                merged_data.loc[valid_public_const_mask, 'PubHE_Constant_ConstantPPP'] = (
-                    merged_data.loc[valid_public_const_mask, 'PubHE_Constant'] / 
-                    merged_data.loc[valid_public_const_mask, 'Constant_PPP_Factor']
-                )
-                
-                merged_data.loc[valid_public_const_mask, 'PubHE_per_Std_Capita_Constant_ConstantPPP'] = (
-                    merged_data.loc[valid_public_const_mask, 'PubHE_Constant_ConstantPPP'] / 
-                    merged_data.loc[valid_public_const_mask, 'Standardized_Population']
-                )
-            
-            if 'PvtHE_Constant' in merged_data.columns:
-                merged_data['PvtHE_Constant_ConstantPPP'] = np.nan
-                merged_data['PvtHE_per_Std_Capita_Constant_ConstantPPP'] = np.nan
-                
-                valid_private_const_mask = valid_const_ppp_mask & ~merged_data['PvtHE_Constant'].isna()
-                
-                merged_data.loc[valid_private_const_mask, 'PvtHE_Constant_ConstantPPP'] = (
-                    merged_data.loc[valid_private_const_mask, 'PvtHE_Constant'] / 
-                    merged_data.loc[valid_private_const_mask, 'Constant_PPP_Factor']
-                )
-                
-                merged_data.loc[valid_private_const_mask, 'PvtHE_per_Std_Capita_Constant_ConstantPPP'] = (
-                    merged_data.loc[valid_private_const_mask, 'PvtHE_Constant_ConstantPPP'] / 
-                    merged_data.loc[valid_private_const_mask, 'Standardized_Population']
-                )
-            
-            # Drop the temporary column used for calculations
-            merged_data = merged_data.drop(columns=['Constant_PPP_Factor'])
+            result.loc[valid_mask, per_capita_col] = (
+                result.loc[valid_mask, ppp_col] / 
+                result.loc[valid_mask, 'Standardized_Population']
+            )
+    
+    return result
+
+def _apply_constant_ppp_adjustment(data, ppp_data, reference_year, impute_missing=False):
+    """
+    Apply constant (reference year) PPP adjustment to health expenditure indicators.
+    
+    Args:
+        data (DataFrame): Dataset with current and constant price indicators
+        ppp_data (DataFrame): PPP conversion factor data
+        reference_year (int): Reference year for PPP factors
+        impute_missing (bool, optional): Whether to impute missing PPP factors. Defaults to False.
+    
+    Returns:
+        DataFrame: Dataset with constant PPP indicators added
+    """
+    logger.info(f"Applying constant PPP adjustment using reference year {reference_year}...")
+    result = data.copy()
+    
+    # Filter PPP data to only include the reference year
+    ref_ppp_data = ppp_data[ppp_data['Year'] == reference_year].copy()
+    
+    if ref_ppp_data.empty:
+        logger.warning(f"No PPP data available for reference year {reference_year}")
+        logger.info("Looking for nearest available year...")
+        
+        # Find the nearest available year to the reference year
+        all_years = sorted(ppp_data['Year'].unique())
+        if not all_years:
+            logger.error("No PPP data available at all")
+            return result
         else:
-            print("Step 4: Skipping constant PPP adjustment as no reference year data is available")
-    else:
-        print("Step 4: Skipping constant PPP adjustment as no PPP data is available")
+            nearest_year = min(all_years, key=lambda x: abs(x - reference_year))
+            logger.info(f"Using PPP data from {nearest_year} as reference (closest to {reference_year})")
+            ref_ppp_data = ppp_data[ppp_data['Year'] == nearest_year].copy()
     
-    # List all columns that were calculated
-    print("\nGenerated indicators:")
-    indicator_columns = [col for col in merged_data.columns if any(x in col for x in ['per_Std_Capita', 'CurrentPPP', 'ConstantPPP'])]
-    for col in sorted(indicator_columns):
-        print(f"- {col}")
+    # Create a mapping of ISO3 -> PPP_Factor from the reference year
+    ppp_mapping = ref_ppp_data[['ISO3', 'PPP_Factor']].drop_duplicates('ISO3').set_index('ISO3')['PPP_Factor'].to_dict()
     
-    return merged_data
+    # Add a column with constant PPP factors to the data
+    result['Constant_PPP_Factor'] = result['ISO3'].map(ppp_mapping)
+    
+    # Handle missing constant PPP factors
+    missing_const_ppp_count = result['Constant_PPP_Factor'].isna().sum()
+    if missing_const_ppp_count > 0:
+        logger.warning(f"Missing constant PPP factors for {missing_const_ppp_count} out of {len(result)} rows")
+        
+        if impute_missing:
+            # For each ISO3 with missing values, try to find PPP data for any year
+            iso3_missing = result[result['Constant_PPP_Factor'].isna()]['ISO3'].unique()
+            
+            for iso3 in iso3_missing:
+                # Get all PPP data for this country
+                country_ppp = ppp_data[ppp_data['ISO3'] == iso3]
+                
+                if not country_ppp.empty:
+                    # Get the closest year to reference year
+                    closest_year = min(country_ppp['Year'].unique(), key=lambda x: abs(x - reference_year))
+                    closest_ppp = country_ppp[country_ppp['Year'] == closest_year]['PPP_Factor'].iloc[0]
+                    
+                    # Apply this PPP factor to all rows with this ISO3
+                    result.loc[result['ISO3'] == iso3, 'Constant_PPP_Factor'] = closest_ppp
+                    
+                    country_name = result.loc[result['ISO3'] == iso3, 'Country'].iloc[0]
+                    logger.debug(f"Imputed constant PPP factor for {country_name} ({iso3}) using data from {closest_year}")
+    
+    # Create a mask for rows with valid constant PPP factors
+    valid_const_ppp_mask = ~result['Constant_PPP_Factor'].isna()
+    
+    # Define expenditure types and adjustments to process
+    adjustments = [
+        # Current prices with constant PPP
+        ('Total_Health_Expenditure', 'THE', 'ConstantPPP'),
+        ('Public_Health_Expenditure', 'PubHE', 'ConstantPPP'),
+        ('Private_Health_Expenditure', 'PvtHE', 'ConstantPPP'),
+        
+        # Constant prices with constant PPP (RECOMMENDED FOR TIME SERIES COMPARISON)
+        ('THE_Constant', 'THE', 'Constant_ConstantPPP'),
+        ('PubHE_Constant', 'PubHE', 'Constant_ConstantPPP'),
+        ('PvtHE_Constant', 'PvtHE', 'Constant_ConstantPPP')
+    ]
+    
+    # Apply constant PPP adjustment to each combination
+    for source_col, prefix, suffix in adjustments:
+        if source_col in result.columns and not result[source_col].isna().all():
+            # Define output column names
+            ppp_col = f"{prefix}_{suffix}"
+            per_capita_col = f"{prefix}_per_Std_Capita_{suffix}"
+            
+            # Initialize output columns
+            result[ppp_col] = np.nan
+            result[per_capita_col] = np.nan
+            
+            # Calculate constant PPP-adjusted values
+            valid_mask = valid_const_ppp_mask & ~result[source_col].isna()
+            
+            result.loc[valid_mask, ppp_col] = (
+                result.loc[valid_mask, source_col] / 
+                result.loc[valid_mask, 'Constant_PPP_Factor']
+            )
+            
+            result.loc[valid_mask, per_capita_col] = (
+                result.loc[valid_mask, ppp_col] / 
+                result.loc[valid_mask, 'Standardized_Population']
+            )
+    
+    # Drop the temporary column used for calculations
+    result = result.drop(columns=['Constant_PPP_Factor'])
+    
+    return result
+
+def _impute_missing_values(df, value_column, id_columns=['ISO3'], value_label='value'):
+    """
+    Impute missing values using the nearest year available for each entity.
+    
+    Args:
+        df (DataFrame): DataFrame with potentially missing values
+        value_column (str): Column name that may have missing values
+        id_columns (list, optional): Columns that uniquely identify each entity. Defaults to ['ISO3'].
+        value_label (str, optional): Description of the value for messages. Defaults to 'value'.
+    
+    Returns:
+        DataFrame: DataFrame with imputed values
+    """
+    result = df.copy()
+    logger.info(f"Imputing missing {value_label}s...")
+    
+    # Get list of entities with missing values
+    missing_filter = df[value_column].isna()
+    entities_with_missing = df[missing_filter][id_columns].drop_duplicates()
+    
+    imputed_count = 0
+    
+    # Process each entity
+    for idx, entity in entities_with_missing.iterrows():
+        entity_filter = np.ones(len(df), dtype=bool)
+        entity_label_parts = []
+        
+        # Create filter and label for this entity
+        for col in id_columns:
+            entity_filter &= (df[col] == entity[col])
+            entity_label_parts.append(f"{entity[col]}")
+            
+        entity_data = df[entity_filter]
+        entity_label = ", ".join(entity_label_parts)
+        
+        # Get missing years for this entity
+        missing_years = entity_data[entity_data[value_column].isna()]['Year'].tolist()
+        
+        # Check if entity has any non-missing values
+        if any(~entity_data[value_column].isna()):
+            available_years = entity_data[~entity_data[value_column].isna()]['Year'].tolist()
+            
+            for missing_year in missing_years:
+                # Find closest available year
+                closest_year = min(available_years, key=lambda x: abs(x - missing_year))
+                closest_value = entity_data[entity_data['Year'] == closest_year][value_column].iloc[0]
+                
+                # Impute the missing value
+                impute_filter = entity_filter & (df['Year'] == missing_year)
+                result.loc[impute_filter, value_column] = closest_value
+                imputed_count += 1
+                
+                # Display imputation information with country name if available
+                if 'Country' in df.columns:
+                    country_name = df.loc[entity_filter, 'Country'].iloc[0]
+                    logger.debug(f"Imputed {value_label} for {country_name} ({entity_label}) in year {missing_year} using data from {closest_year}")
+                else:
+                    logger.debug(f"Imputed {value_label} for {entity_label} in year {missing_year} using data from {closest_year}")
+    
+    logger.info(f"Imputed {imputed_count} missing {value_label} values")
+    return result
 
 def document_imputation(data, ppp_data, gdp_deflator, output_path, impute_missing_ppp=True, impute_missing_gdp=True):
     """
@@ -1784,7 +1894,7 @@ def document_imputation(data, ppp_data, gdp_deflator, output_path, impute_missin
     Returns:
         DataFrame with imputation documentation
     """
-    print("Documenting data imputation...")
+    logger.info("Documenting data imputation...")
     
     # Initialize a list to store imputation records
     imputation_records = []
@@ -1896,27 +2006,25 @@ def document_imputation(data, ppp_data, gdp_deflator, output_path, impute_missin
         imputation_filename = "imputation_documentation.csv"
         if output_path is not None:
             imputation_df.to_csv(output_path / imputation_filename, index=False)
-            print(f"Imputation documentation saved to {output_path / imputation_filename}")
+            logger.info(f"Imputation documentation saved to {output_path / imputation_filename}")
         
         # Create summary statistics
-        print("\nImputation Summary:")
-        print(f"Total records with imputation: {len(imputation_df)}")
+        logger.info("\nImputation Summary:")
+        logger.info(f"Total records with imputation: {len(imputation_df)}")
         
         # Count by missing data type
         if 'Missing_Data' in imputation_df.columns:
             type_counts = imputation_df['Missing_Data'].value_counts()
-            print("\nImputation by type:")
+            logger.info("\nImputation by type:")
             for data_type, count in type_counts.items():
-                print(f"  {data_type}: {count} records")
+                logger.info(f"  {data_type}: {count} records")
         
         # Count by country
         country_counts = imputation_df.groupby(['ISO3', 'Country']).size().reset_index(name='Count')
         country_counts = country_counts.sort_values('Count', ascending=False)
-        print("\nTop 10 countries with most imputations:")
-        for _, row in country_counts.head(10).iterrows():
-            print(f"  {row['Country']} ({row['ISO3']}): {row['Count']} records")
+        
     else:
-        print("No imputation was performed or documented.")
+        logger.info("No imputation was performed or documented.")
     
     return imputation_df
 
@@ -1933,7 +2041,7 @@ def create_iso3_to_country_mapping(iso3_data, iso3_column='ISO3', country_column
         Dictionary mapping ISO3 codes to country names
     """
     if iso3_column not in iso3_data.columns or country_column not in iso3_data.columns:
-        print(f"Warning: Cannot create ISO3 mapping, columns {iso3_column} or {country_column} not found")
+        logger.warning(f"Cannot create ISO3 mapping, columns {iso3_column} or {country_column} not found")
         return {}
     
     # Remove rows with missing values
@@ -1950,7 +2058,7 @@ def create_iso3_to_country_mapping(iso3_data, iso3_column='ISO3', country_column
         if pd.notna(iso3) and pd.notna(country) and isinstance(iso3, str):
             iso3_to_country[iso3] = country
     
-    print(f"Created mapping with {len(iso3_to_country)} ISO3 codes to country names")
+    logger.info(f"Created mapping with {len(iso3_to_country)} ISO3 codes to country names")
     return iso3_to_country
 
 def merge_using_iso3(left_df, right_df, left_on='ISO3', right_on='ISO3', how='inner'):
@@ -1978,43 +2086,82 @@ def merge_using_iso3(left_df, right_df, left_on='ISO3', right_on='ISO3', how='in
     merged_iso3_count = merged[left_on].nunique()
     
     # Print diagnostics
-    print(f"Merge using ISO3 codes:")
-    print(f"  Left DataFrame: {left_iso3_count} unique ISO3 codes")
-    print(f"  Right DataFrame: {right_iso3_count} unique ISO3 codes")
-    print(f"  Merged DataFrame: {merged_iso3_count} unique ISO3 codes")
+    logger.info(f"Merge using ISO3 codes:")
+    logger.info(f"  Left DataFrame: {left_iso3_count} unique ISO3 codes")
+    logger.info(f"  Right DataFrame: {right_iso3_count} unique ISO3 codes")
+    logger.info(f"  Merged DataFrame: {merged_iso3_count} unique ISO3 codes")
     
     # Calculate and report missing matches
     if how == 'inner':
         missing_left = left_iso3_count - merged_iso3_count
         missing_right = right_iso3_count - merged_iso3_count
-        print(f"  Missing matches: {missing_left} from left, {missing_right} from right")
+        logger.info(f"  Missing matches: {missing_left} from left, {missing_right} from right")
         
         # Show examples of unmatched ISO3 codes
         if missing_left > 0:
             left_only = set(left_df[left_on].unique()) - set(merged[left_on].unique())
-            print(f"  Examples of unmatched ISO3 codes from left: {list(left_only)[:5]}")
+            logger.debug(f"  Examples of unmatched ISO3 codes from left: {list(left_only)[:5]}")
         
         if missing_right > 0:
             right_only = set(right_df[right_on].unique()) - set(merged[right_on].unique())
-            print(f"  Examples of unmatched ISO3 codes from right: {list(right_only)[:5]}")
+            logger.debug(f"  Examples of unmatched ISO3 codes from right: {list(right_only)[:5]}")
     
     return merged
 
 def main():
     """Main function to run the script."""
-    print("Starting Comprehensive Health Expenditure calculation with all indicator combinations...")
+    # Set up command-line argument parser
+    import argparse
+    parser = argparse.ArgumentParser(description="Calculate Health Expenditure per Standardized Capita with PPP adjustment")
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO",
+                        help="Set console logging level (default: INFO)")
+    parser.add_argument("--file-log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="DEBUG",
+                        help="Set file logging level (default: DEBUG)")
+    parser.add_argument("--log-file", type=str, default=None,
+                        help="Specify log file (default: auto-generated with timestamp)")
+    parser.add_argument("--formula", type=str, choices=["israeli", "ltc", "eu27"], default="israeli",
+                        help="Capitation formula to use (default: israeli)")
+    parser.add_argument("--reference-year", type=int, default=REFERENCE_YEAR,
+                        help=f"Reference year for constant prices and PPP (default: {REFERENCE_YEAR})")
+    parser.add_argument("--impute-ppp", action="store_true",
+                        help="Enable PPP imputation")
+    parser.add_argument("--impute-gdp", action="store_true",
+                        help="Enable GDP deflator imputation")
+    
+    args = parser.parse_args()
+    
+    # Set up logging with specified levels
+    global logger
+    log_levels = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR
+    }
+    console_level = log_levels[args.log_level]
+    file_level = log_levels[args.file_log_level]
+    logger = setup_logging(console_level=console_level, file_level=file_level, log_file=args.log_file)
+    
+    logger.info("Starting Comprehensive Health Expenditure calculation with all indicator combinations...")
     
     # Define reference year and adjustment settings
-    reference_year = REFERENCE_YEAR  # Uses the global constant
-    impute_ppp = False  # Set to True to enable PPP imputation
-    impute_gdp = False  # Set to True to enable GDP deflator imputation
+    reference_year = args.reference_year
+    impute_ppp = args.impute_ppp
+    impute_gdp = args.impute_gdp
     
     # Capitation formula to use
-    formula = 'ltc'  # Options: 'israeli', 'ltc', 'eu27'
+    formula = args.formula
     
     # Export path
     export_path = Path("Standardized_Expenditure")
     export_path.mkdir(parents=True, exist_ok=True)
+    
+    # Log configuration
+    logger.info(f"Configuration:")
+    logger.info(f"  Capitation formula: {formula}")
+    logger.info(f"  Reference year: {reference_year}")
+    logger.info(f"  PPP imputation: {'Enabled' if impute_ppp else 'Disabled'}")
+    logger.info(f"  GDP deflator imputation: {'Enabled' if impute_gdp else 'Disabled'}")
     
     # Load capitation weights - important to capture both return values
     cap_dict, formula_type = load_capitation_weights(formula=formula)
@@ -2023,22 +2170,22 @@ def main():
     try:
         # Load GHED data with split public/private expenditure
         ghed_data = load_ghed_data()
-        print(f"\nGHED data sample:\n{ghed_data.head()}")
+        logger.debug(f"\nGHED data sample:\n{ghed_data.head()}")
         
         # Load PPP data from World Bank
         ppp_data = load_ppp_data()
         if not ppp_data.empty:
-            print(f"\nPPP data sample:\n{ppp_data.head()}")
+            logger.debug(f"\nPPP data sample:\n{ppp_data.head()}")
         else:
-            print("\nWarning: No PPP data loaded, will proceed without PPP adjustment")
+            logger.warning("\nNo PPP data loaded, will proceed without PPP adjustment")
         
         # Load GDP data for deflator calculation
         gdp_deflator = load_gdp_data(reference_year=reference_year)
         if not gdp_deflator.empty:
-            print(f"\nGDP deflator data sample:\n{gdp_deflator.head()}")
-            print(f"Reference year for constant prices: {reference_year}")
+            logger.debug(f"\nGDP deflator data sample:\n{gdp_deflator.head()}")
+            logger.info(f"Reference year for constant prices: {reference_year}")
         else:
-            print("\nWarning: No GDP deflator data loaded, will proceed without constant price adjustment")
+            logger.warning("\nNo GDP deflator data loaded, will proceed without constant price adjustment")
         
         # Load and process population data
         male_pop_raw, female_pop_raw = load_population_data()
@@ -2047,7 +2194,7 @@ def main():
         iso3_to_country = {}
         if not male_pop_raw.empty and 'ISO3' in male_pop_raw.columns and 'Country' in male_pop_raw.columns:
             iso3_to_country = create_iso3_to_country_mapping(male_pop_raw)
-            print(f"Created ISO3 to country mapping with {len(iso3_to_country)} entries")
+            logger.info(f"Created ISO3 to country mapping with {len(iso3_to_country)} entries")
         
         # Calculate standardized population - use formula_type from the loaded weights
         standardized_pop = preprocess_population_data(male_pop_raw, female_pop_raw, cap_dict, formula_type=formula_type)
@@ -2081,6 +2228,7 @@ def main():
             )
         
         # Calculate all health expenditure indicators (comprehensive approach)
+        logger.info("Starting calculation of health expenditure indicators...")
         results = calculate_all_expenditure_indicators(
             ghed_data, 
             standardized_pop, 
@@ -2164,7 +2312,6 @@ def main():
             "PvtHE_per_Std_Capita_Constant_ConstantPPP": f"Private health expenditure per standardized capita (constant {reference_year} LCU converted to international $ using {reference_year} PPP factors)",
             
             # Other columns
-            "Indicator_Notes": "Additional information about the data and calculations",
             "GDP_Deflator": "GDP deflator factor (base: reference year)",
             "PPP_Factor": "Current PPP conversion factor (LCU per international $)"
         }
@@ -2173,39 +2320,33 @@ def main():
         dict_filename = f"Health_Expenditure_Data_Dictionary.csv"
         dict_df = pd.DataFrame([{"Column": col, "Description": desc} for col, desc in column_descriptions.items()])
         dict_df.to_csv(export_path / dict_filename, index=False)
-        print(f"\nData dictionary saved to {export_path / dict_filename}")
+        logger.info(f"Data dictionary saved to {export_path / dict_filename}")
         
         # Save the results
         results.to_csv(export_path / filename, index=False)
-        print(f"\nComprehensive results saved to {export_path / filename}")
+        logger.info(f"Comprehensive results saved to {export_path / filename}")
         
         # Generate a mapping file for ISO3 to country names as a reference
         if iso3_to_country:
             mapping_df = pd.DataFrame([(iso3, name) for iso3, name in iso3_to_country.items()], 
                                      columns=['ISO3', 'Country_Name'])
             mapping_df.to_csv(export_path / "ISO3_country_mapping.csv", index=False)
-            print(f"ISO3 to country mapping saved to {export_path / 'ISO3_country_mapping.csv'}")
+            logger.info(f"ISO3 to country mapping saved to {export_path / 'ISO3_country_mapping.csv'}")
         
         # Print merge success statistics
         total_countries = len(iso3_to_country) if iso3_to_country else 0
         matched_countries = results['ISO3'].nunique()
         if total_countries > 0:
             match_percentage = (matched_countries / total_countries) * 100
-            print(f"\nMatched {matched_countries} out of {total_countries} countries ({match_percentage:.1f}%)")
+            logger.info(f"Matched {matched_countries} out of {total_countries} countries ({match_percentage:.1f}%)")
             
-        # Print recommended indicators for time series analysis
-        print("\nRECOMMENDED INDICATORS FOR TIME SERIES ANALYSIS:")
-        print("For comparing health expenditure across countries and time:")
-        print("- THE_per_Std_Capita_Constant_ConstantPPP: Total health expenditure per standardized capita")
-        print("- PubHE_per_Std_Capita_Constant_ConstantPPP: Public health expenditure per standardized capita")
-        print("- PvtHE_per_Std_Capita_Constant_ConstantPPP: Private health expenditure per standardized capita")
-        print(f"(All using constant {reference_year} prices and constant {reference_year} PPP factors)")
-        
+        logger.info("Processing completed successfully")
+            
     except Exception as e:
-        print(f"Error processing data: {e}")
+        logger.error(f"Error processing data: {e}")
         import traceback
-        traceback.print_exc()
-        raise
+        logger.error(traceback.format_exc())
+        sys.exit(1)
         
 if __name__ == "__main__":
     main()

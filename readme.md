@@ -19,13 +19,17 @@ The script standardizes health expenditure measurement across countries by apply
 - **Missing data handling**: Optional imputation for missing PPP and GDP deflator values
 - **Country name standardization**: Harmonizes country names across different datasets
 - **Comprehensive reporting**: Generates detailed output with imputation documentation and data dictionary
+- **Detailed logging**: Configurable logging to both console and file for better tracking and debugging
 
 ## Requirements
 
 ### Python Dependencies
+The required Python packages are listed in the `requirements.txt` file. Main dependencies include:
 - pandas
 - numpy
 - pathlib
+- regex
+- logging
 
 ### Required Data Files
 - [`GHED_data_2025.xlsx`](https://apps.who.int/nha/database/Select/Indicators/en): Health expenditure data from the Global Health Expenditure Database
@@ -40,13 +44,14 @@ The script standardizes health expenditure measurement across countries by apply
 
 ### Generated Files
 - `data/processed/ghed_data_optimized.csv`: Optimized GHED data (created by `ghed_to_csv.py`)
+- `Standardized_Expenditure/logs/`: Directory containing detailed log files
 
 ## Installation
 
 1. Clone this repository
-2. Install required dependencies:
+2. Install required dependencies using the requirements file:
    ```
-   pip install pandas numpy
+   pip install -r requirements.txt
    ```
 3. Place the required data files in the "data" directory if they are not in it
 4. (Optional but recommended) Convert the GHED Excel file to optimized CSV format:
@@ -80,17 +85,29 @@ After preparing the data, run the main script:
 python whe.py
 ```
 
-### Configuration
+With command-line options:
 
-The main script parameters can be adjusted at the top of the file:
+```
+python whe.py --log-level INFO --file-log-level DEBUG --formula ltc --reference-year 2017 --impute-ppp --impute-gdp
+```
 
-- `REFERENCE_YEAR`: Year for constant price calculations and PPP adjustment (default: 2017)
-- `BASE_COUNTRY`: Base country for PPP comparisons (default: "United States")
-- `impute_ppp`: Enable/disable PPP imputation (default: False)
-- `impute_gdp`: Enable/disable GDP deflator imputation (default: False)
-- `formula`: Capitation formula to use ('israeli', 'ltc', or 'eu27')
+### Command Line Arguments
 
-If desired, you can modify the Israeli Capitation Formula weights defined in the `ISRAELI_CAPITATION` dictionary.
+The script supports the following command line arguments:
+
+- `--log-level`: Set console logging level (DEBUG, INFO, WARNING, ERROR; default: INFO)
+- `--file-log-level`: Set file logging level (DEBUG, INFO, WARNING, ERROR; default: DEBUG)
+- `--log-file`: Specify log file path (default: auto-generated with timestamp)
+- `--formula`: Capitation formula to use (israeli, ltc, eu27; default: israeli)
+- `--reference-year`: Reference year for constant prices and PPP (default: 2017)
+- `--impute-ppp`: Enable PPP imputation (default: disabled)
+- `--impute-gdp`: Enable GDP deflator imputation (default: disabled)
+
+To see minimal console output but capture detailed logs in a file:
+
+```
+python whe.py --log-level WARNING --file-log-level DEBUG
+```
 
 ## Output
 
@@ -100,6 +117,7 @@ The script creates a directory named `Standardized_Expenditure` containing:
 - `Health_Expenditure_Data_Dictionary.csv`: Detailed description of each column in the output file
 - `ISO3_country_mapping.csv`: Mapping between ISO3 codes and country names
 - `imputation_documentation.csv`: Records of data imputation if enabled
+- `logs/`: Directory containing detailed log files with timestamps
 
 Filename suffixes indicate formula type, reference year, and imputation settings used.
 
