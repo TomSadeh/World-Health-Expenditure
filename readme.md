@@ -18,7 +18,7 @@ The script standardizes health expenditure measurement across countries by apply
 - **Time series consistency**: Option to use constant PPP factors from reference year for better time series comparisons
 - **Missing data handling**: Optional imputation for missing PPP and GDP deflator values
 - **Country name standardization**: Harmonizes country names across different datasets
-- **Comprehensive reporting**: Generates detailed output with imputation documentation and data dictionary
+- **Comprehensive reporting**: Generates detailed output with a data dictionary and imputation documentation (the latter does not work currently)
 - **Detailed logging**: Configurable logging to both console and file for better tracking and debugging
 
 ## Requirements
