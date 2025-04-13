@@ -305,7 +305,6 @@ The generated dataset includes the following key variables:
 - `PvtHE_per_Std_Capita_Constant_ConstantPPP`: Private health expenditure per standardized capita (constant reference year LCU converted to international $ using reference year PPP factors)
 
 ### Other Metrics
-- `Indicator_Notes`: Additional information about the data and calculations
 - `GDP_Deflator`: GDP deflator factor (base: reference year)
 - `PPP_Factor`: Current PPP conversion factor (LCU per international $)
 
