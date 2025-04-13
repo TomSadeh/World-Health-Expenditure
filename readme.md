@@ -359,16 +359,72 @@ The generated dataset includes the following key variables:
 - `PPP_Factor`: Current PPP conversion factor (LCU per international $)
 
 ## License
+This project is licensed under the MIT License.
 
+Copyright (c) 2025 Tom Sadeh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ## Contributing
+Contributions to improve the World Health Expenditure tool are welcome. Here's how you can contribute:
 
+### Reporting Issues
+- Use the GitHub issue tracker to report bugs or suggest enhancements
+- Include detailed steps to reproduce any bugs
+- Mention your operating system and Python version
+
+### Development Process
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Add tests for new functionality if applicable
+5. Update documentation to reflect your changes
+6. Commit your changes (`git commit -m 'Add some amazing feature'`)
+7. Push to the branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
+
+### Pull Request Guidelines
+- Ensure your code follows the existing style
+- Include comments in your code where necessary
+- Update the README.md with details of changes if applicable
+- The PR should work on Python 3.8 or higher
+
+### Code of Conduct
+- Be respectful in your communications
+- Focus on the technical merits of contributions
+- Provide constructive feedback
+
+### Data Contributions
+If you have access to improved or additional datasets that could enhance this tool:
+- Ensure you have the right to share the data
+- Document the source and any limitations
+- Provide a clear description of how the new data improves the tool
+
+### Documentation Improvements
+Suggestions to improve documentation are highly valued:
+- Fix typos or clarify explanations
+- Add examples of how to use the tool for specific research questions
+- Translate documentation to other languages if possible
 
 
 ## Citation
-
-If you use this tool in your research, please cite:
 
 
 
