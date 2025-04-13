@@ -66,7 +66,20 @@ The required Python packages are listed in the `requirements.txt` file. Main dep
 
 ## Data Preprocessing
 
-Before running the main analysis script, you should preprocess the input data files. This ensures consistent formatting and improves performance. The repository includes three preprocessing scripts:
+Before running the main analysis script, you should preprocess the input data files. This ensures consistent formatting and improves performance. The repository includes a master preprocessing script that runs all preprocessing steps in sequence:
+
+```
+python preprocess_all.py
+```
+
+This script will run all three preprocessing scripts in the correct order:
+1. GHED Excel to CSV conversion
+2. World Bank data processing 
+3. Population data processing
+
+The script also verifies that all required processed files were created successfully.
+
+Alternatively, you can run each preprocessing script individually:
 
 ### 1. GHED Excel to CSV Conversion
 
@@ -115,7 +128,6 @@ This script:
   - `female_pop.csv` (from `WPP2024_POP_F02_3_POPULATION_5-YEAR_AGE_GROUPS_FEMALE.xlsx`)
 
 The main script (`whe.py`) automatically uses these processed files when available, or falls back to the original files if necessary.
-
 ## Running the Main Script
 
 After preprocessing the data, run the main script:
