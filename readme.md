@@ -34,16 +34,24 @@ The required Python packages are listed in the `requirements.txt` file. Main dep
 ### Required Data Files
 - [`GHED_data_2025.xlsx`](https://apps.who.int/nha/database/Select/Indicators/en): Health expenditure data from the Global Health Expenditure Database
   - *Note: Can be converted to optimized CSV format using the included `ghed_to_csv.py` script*
-- `male_pop.csv`: Male population data by age groups from [World Population Prospects]([https://population.un.org/wpp/Download/Standard/Population/](https://population.un.org/wpp/downloads?folder=Standard%20Projections&group=Population))
-- `female_pop.csv`: Female population data by age groups from [World Population Prospects]([https://population.un.org/wpp/Download/Standard/Population/](https://population.un.org/wpp/downloads?folder=Standard%20Projections&group=Population))
-- `cap.csv`: Capitation formula weights by age group (contains [Israeli, LTC, and EU27](https://www.vanleer.org.il/publication/%D7%A4%D7%A8%D7%95%D7%A4%D7%99%D7%9C-%D7%94%D7%94%D7%95%D7%A6%D7%90%D7%94-%D7%A2%D7%9C-%D7%91%D7%A8%D7%99%D7%90%D7%95%D7%AA-%D7%9C%D7%A4%D7%99-%D7%92%D7%99%D7%9C-%D7%91%D7%99%D7%A9%D7%A8%D7%90%D7%9C/?srsltid=AfmBOorjRFieKHPNqKyBDLDM0skWxiwie2ekM_DKqJxnVG2Y2txzRTsf) formulas)
-- [`API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`](https://data.worldbank.org/indicator/PA.NUS.PPP): World Bank PPP conversion factors
-- GDP data files (required for constant price calculations):
-  - [`API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`](https://data.worldbank.org/indicator/NY.GDP.MKTP.CN): GDP in current LCU
-  - [`API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`](https://data.worldbank.org/indicator/NY.GDP.MKTP.KN): GDP in constant LCU
+- World Population Prospects (WPP) data:
+  - `WPP2024_POP_F02_2_POPULATION_5-YEAR_AGE_GROUPS_MALE.xlsx`: Male population data by age groups
+  - `WPP2024_POP_F02_3_POPULATION_5-YEAR_AGE_GROUPS_FEMALE.xlsx`: Female population data by age groups
+  - *Note: These files are processed into CSV format using the included `pop_data_processor.py` script*
+- `cap.csv`: Capitation formula weights by age group (contains [Israeli, LTC, and EU27](https://www.vanleer.org.il/publication/%D7%A4%D7%A8%D7%95%D7%A4%D7%99%D7%9C-%D7%94%D7%94%D7%95%D7%A6%D7%90%D7%94-%D7%A2%D7%9C-%D7%91%D7%A8%D7%99%D7%90%D7%95%D7%AA-%D7%9C%D7%A4%D7%99-%D7%92%D7%99%D7%9C-%D7%91%D7%99%D7%A9%D7%A8%D7%90%D7%9C) formulas)
+- World Bank data files:
+  - `API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`: PPP conversion factors
+  - `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`: GDP in current LCU
+  - `API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`: GDP in constant LCU
+  - *Note: These files are processed using the included `wb_data_processor.py` script*
 
 ### Generated Files
 - `data/processed/ghed_data_optimized.csv`: Optimized GHED data (created by `ghed_to_csv.py`)
+- `data/processed/male_pop.csv`: Processed male population data (created by `pop_data_processor.py`)
+- `data/processed/female_pop.csv`: Processed female population data (created by `pop_data_processor.py`)
+- `data/processed/gdp_current.csv`: Processed GDP current price data (created by `wb_data_processor.py`)
+- `data/processed/gdp_constant.csv`: Processed GDP constant price data (created by `wb_data_processor.py`)
+- `data/processed/ppp.csv`: Processed PPP data (created by `wb_data_processor.py`)
 - `Standardized_Expenditure/logs/`: Directory containing detailed log files
 
 ## Installation
@@ -54,16 +62,15 @@ The required Python packages are listed in the `requirements.txt` file. Main dep
    pip install -r requirements.txt
    ```
 3. Place the required data files in the "data" directory if they are not in it
-4. (Optional but recommended) Convert the GHED Excel file to optimized CSV format:
-   ```
-   python ghed_to_csv.py
-   ```
+4. Process the input data files using the preprocessing scripts (see next section)
 
-## Usage
+## Data Preprocessing
 
-### GHED Excel to CSV Conversion (Recommended)
+Before running the main analysis script, you should preprocess the input data files. This ensures consistent formatting and improves performance. The repository includes three preprocessing scripts:
 
-Before running the main script, it's recommended to convert the GHED Excel file to an optimized CSV format:
+### 1. GHED Excel to CSV Conversion
+
+Convert the GHED Excel file to an optimized CSV format:
 
 ```
 python ghed_to_csv.py
@@ -75,11 +82,43 @@ This preprocessing step offers several advantages:
 - Only extracts the necessary columns
 - Pre-calculates public and private expenditure components
 
-The converter will create a file called `ghed_data_optimized.csv` in the `data/processed` directory, which the main script will automatically use if available.
+The converter will create a file called `ghed_data_optimized.csv` in the `data/processed` directory.
 
-### Running the Main Script
+### 2. World Bank Data Processing
 
-After preparing the data, run the main script:
+Process the World Bank data files to remove metadata rows and standardize formatting:
+
+```
+python wb_data_processor.py
+```
+
+This script:
+- Removes the first 4 rows from the original World Bank data files (metadata rows)
+- Saves the processed files to the `data/processed` directory with simplified names:
+  - `gdp_current.csv` (from `API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv`)
+  - `gdp_constant.csv` (from `API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv`)
+  - `ppp.csv` (from `API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv`)
+
+### 3. Population Data Processing
+
+Process the World Population Prospects Excel files into CSV format:
+
+```
+python pop_data_processor.py
+```
+
+This script:
+- Reads the WPP data from the original Excel files (headers on row 17, from the "Estimates" worksheet)
+- Converts numeric data with space-separated thousands to standard numeric format
+- Saves the processed files to the `data/processed` directory as:
+  - `male_pop.csv` (from `WPP2024_POP_F02_2_POPULATION_5-YEAR_AGE_GROUPS_MALE.xlsx`)
+  - `female_pop.csv` (from `WPP2024_POP_F02_3_POPULATION_5-YEAR_AGE_GROUPS_FEMALE.xlsx`)
+
+The main script (`whe.py`) automatically uses these processed files when available, or falls back to the original files if necessary.
+
+## Running the Main Script
+
+After preprocessing the data, run the main script:
 
 ```
 python whe.py
@@ -175,14 +214,13 @@ The tool now calculates health expenditure with four different adjustment combin
 
 ### Data Processing Steps
 
-### Pre-processing (optional but recommended)
+### Pre-processing (recommended)
 1. **GHED Data Optimization**: Convert Excel to optimized CSV format using `ghed_to_csv.py`
-   - Extracts only required columns
-   - Pre-calculates public and private expenditure
-   - Significantly improves loading speed and reduces memory usage
+2. **World Bank Data Processing**: Process World Bank files using `wb_data_processor.py`
+3. **Population Data Processing**: Convert WPP Excel files to CSV using `pop_data_processor.py`
 
 ### Main Processing
-1. **Data Loading**: Reads GHED (original or optimized), WPP, and World Bank data files
+1. **Data Loading**: Reads the processed data files (or falls back to original files if needed)
 2. **Country Name Standardization**: Harmonizes country names across datasets
 3. **Population Standardization**: Applies capitation weights to demographic data
 4. **Base Indicator Calculation**: Computes per standardized capita metrics with current prices

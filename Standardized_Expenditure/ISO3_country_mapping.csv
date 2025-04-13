@@ -67,6 +67,7 @@ EST,Estonia
 ETH,Ethiopia
 FIN,Finland
 FJI,Fiji
+FLK,Falkland Islands (Malvinas)
 FRA,France
 FRO,Faroe Islands
 FSM,Micronesia (Fed. States of)
@@ -183,11 +184,13 @@ SAU,Saudi Arabia
 SDN,Sudan
 SEN,Senegal
 SGP,Singapore
+SHN,Saint Helena
 SLB,Solomon Islands
 SLE,Sierra Leone
 SLV,El Salvador
 SMR,San Marino
 SOM,Somalia
+SPM,Saint Pierre and Miquelon
 SRB,Serbia
 SSD,South Sudan
 STP,Sao Tome and Principe
@@ -204,6 +207,7 @@ TCD,Chad
 TGO,Togo
 THA,Thailand
 TJK,Tajikistan
+TKL,Tokelau
 TKM,Turkmenistan
 TLS,Timor-Leste
 TON,Tonga
@@ -218,6 +222,7 @@ UKR,Ukraine
 URY,Uruguay
 USA,United States of America
 UZB,Uzbekistan
+VAT,Holy See
 VCT,Saint Vincent and the Grenadines
 VEN,Venezuela (Bolivarian Republic of)
 VGB,British Virgin Islands

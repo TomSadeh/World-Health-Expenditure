@@ -62,6 +62,11 @@ def setup_logging(console_level=logging.INFO, file_level=logging.DEBUG, log_file
     """
     # Create a logger
     logger = logging.getLogger("whe")
+    
+    # Clear any existing handlers to prevent duplicate logging
+    if logger.hasHandlers():
+        logger.handlers.clear()
+    
     logger.setLevel(logging.DEBUG)  # Set logger to capture all levels
     
     # Create formatter
@@ -95,7 +100,6 @@ def setup_logging(console_level=logging.INFO, file_level=logging.DEBUG, log_file
     logger.debug(f"File log level: {logging.getLevelName(file_level)}")
     
     return logger
-
 # Global logger
 logger = setup_logging()
 
@@ -169,16 +173,23 @@ def load_ppp_data():
     empty_result = pd.DataFrame(columns=["ISO3", "Country", "Year", "PPP_Factor"])
     
     try:
-        # Read the PPP data file
-        ppp_file = "API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv"
-        
-        # Load the CSV file - we need to set dtype=None to detect numeric columns correctly
-        try:
-            ppp_df = pd.read_csv(data_path / ppp_file, dtype=None)
-            logger.debug(f"Successfully loaded PPP file with shape: {ppp_df.shape}")
-        except Exception as e:
-            logger.error(f"Error loading PPP file: {e}")
-            return empty_result
+        # First try to load the processed version if it exists
+        processed_file = data_path / "processed" / "ppp.csv"
+        if processed_file.exists():
+            logger.info("Loading processed PPP data file")
+            ppp_df = pd.read_csv(processed_file, dtype=None)
+        else:
+            # Fall back to the original file if processed version doesn't exist
+            ppp_file = "API_PA.NUS.PPP_DS2_en_csv_v2_13721.csv"
+            logger.info(f"Loading original PPP data file: {ppp_file}")
+            
+            # Load the CSV file - we need to set dtype=None to detect numeric columns correctly
+            try:
+                ppp_df = pd.read_csv(data_path / ppp_file, dtype=None)
+                logger.debug(f"Successfully loaded PPP file with shape: {ppp_df.shape}")
+            except Exception as e:
+                logger.error(f"Error loading PPP file: {e}")
+                return empty_result
         
         # Get year columns (exclude metadata columns)
         year_columns = [col for col in ppp_df.columns if str(col).isdigit()]
@@ -189,55 +200,59 @@ def load_ppp_data():
             
         logger.debug(f"Found {len(year_columns)} year columns from {min(year_columns)} to {max(year_columns)}")
         
-        # Filter for PPP conversion factor rows
-        ppp_indicator = "PPP conversion factor, GDP (LCU per international $)"
-        filtered_df = ppp_df[ppp_df['Indicator Name'].str.contains(ppp_indicator, na=False, regex=False)]
-        
-        if filtered_df.empty:
-            logger.warning(f"No rows with '{ppp_indicator}' found in the data")
-            return empty_result
+        # Filter for PPP conversion factor rows - only needed for original WB data, not processed data
+        if "Indicator Name" in ppp_df.columns:
+            ppp_indicator = "PPP conversion factor, GDP (LCU per international $)"
+            filtered_df = ppp_df[ppp_df['Indicator Name'].str.contains(ppp_indicator, na=False, regex=False)]
             
-        logger.debug(f"Found {len(filtered_df)} rows with PPP conversion factor data")
-        
-        # Filter out aggregates (regions, income groups, etc.)
-        region_terms = ['region', 'world', 'income', 'development']
-        region_pattern = '|'.join(region_terms)
-        filtered_df = filtered_df[~filtered_df['Country Name'].str.lower().str.contains(region_pattern, na=False)]
-        
-        logger.debug(f"After filtering out regions, {len(filtered_df)} country rows remain")
-        
-        # Convert to long format - need to handle both string and numeric columns
-        ppp_data = []
-        
-        for _, row in filtered_df.iterrows():
-            country = row['Country Name']
-            country_code = row['Country Code']  # This is the ISO3 code in World Bank data
+            if filtered_df.empty:
+                logger.warning(f"No rows with '{ppp_indicator}' found in the data")
+                return empty_result
+                
+            logger.debug(f"Found {len(filtered_df)} rows with PPP conversion factor data")
             
-            # Process each year column
-            for year in year_columns:
-                # Skip missing or zero values
-                if pd.isna(row[year]) or row[year] == 0:
-                    continue
-                    
-                try:
-                    # Convert to numeric, handling both string and float columns
-                    ppp_value = pd.to_numeric(row[year], errors='coerce')
-                    if pd.isna(ppp_value) or ppp_value <= 0:
+            # Filter out aggregates (regions, income groups, etc.)
+            region_terms = ['region', 'world', 'income', 'development']
+            region_pattern = '|'.join(region_terms)
+            filtered_df = filtered_df[~filtered_df['Country Name'].str.lower().str.contains(region_pattern, na=False)]
+            
+            logger.debug(f"After filtering out regions, {len(filtered_df)} country rows remain")
+            
+            # Convert to long format - need to handle both string and numeric columns
+            ppp_data = []
+            
+            for _, row in filtered_df.iterrows():
+                country = row['Country Name']
+                country_code = row['Country Code']  # This is the ISO3 code in World Bank data
+                
+                # Process each year column
+                for year in year_columns:
+                    # Skip missing or zero values
+                    if pd.isna(row[year]) or row[year] == 0:
                         continue
                         
-                    ppp_data.append({
-                        "Country": country,  # Keep country name for reference
-                        "ISO3": country_code,  # Use ISO3 code for merging
-                        "Year": int(year),
-                        "PPP_Factor": ppp_value
-                    })
-                except (ValueError, TypeError) as e:
-                    logger.debug(f"Error processing {country} ({country_code}) for year {year}: {e}")
-                    # Skip values that can't be converted
-                    continue
-        
-        # Convert to DataFrame
-        result = pd.DataFrame(ppp_data)
+                    try:
+                        # Convert to numeric, handling both string and float columns
+                        ppp_value = pd.to_numeric(row[year], errors='coerce')
+                        if pd.isna(ppp_value) or ppp_value <= 0:
+                            continue
+                            
+                        ppp_data.append({
+                            "Country": country,  # Keep country name for reference
+                            "ISO3": country_code,  # Use ISO3 code for merging
+                            "Year": int(year),
+                            "PPP_Factor": ppp_value
+                        })
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Error processing {country} ({country_code}) for year {year}: {e}")
+                        # Skip values that can't be converted
+                        continue
+            
+            # Convert to DataFrame
+            result = pd.DataFrame(ppp_data)
+        else:
+            # If using processed data, it's already in the right format
+            result = ppp_df
         
         if result.empty:
             logger.warning("No PPP data was successfully parsed")
@@ -374,7 +389,7 @@ def load_population_data():
         datasets = {}
         for sex, filename in files.items():
             try:
-                df = pd.read_csv(data_path / filename)
+                df = pd.read_csv(data_path / 'processed' / filename)
                 if 'ISO3 Alpha-code' not in df.columns:
                     logger.warning(f"ISO3 Alpha-code column not found in {filename}")
                     continue
@@ -548,7 +563,7 @@ def process_population_dataset(pop_df, sex):
         except:
             # If that fails, try removing spaces and then converting
             age_df['Population'] = pd.to_numeric(
-                age_df[age_col].astype(str).str.replace(' ', ''), 
+                age_df[age_col], 
                 errors='coerce'
             )
         
@@ -926,35 +941,68 @@ def load_gdp_data(reference_year=2017):
     empty_result = pd.DataFrame(columns=["ISO3", "Country", "Year", "GDP_Deflator"])
     
     try:
-        # Define filenames
-        gdp_files = {
+        # First try to load processed files
+        processed_files = {
+            "current": data_path / "processed" / "gdp_current.csv",
+            "constant": data_path / "processed" / "gdp_constant.csv"
+        }
+        
+        original_files = {
             "current": "API_NY.GDP.MKTP.CN_DS2_en_csv_v2_26332.csv",
             "constant": "API_NY.GDP.MKTP.KN_DS2_en_csv_v2_13325.csv"
         }
         
         # Load both datasets
         gdp_data = {}
-        for gdp_type, filename in gdp_files.items():
-            try:
-                gdp_data[gdp_type] = pd.read_csv(data_path / filename)
-                logger.debug(f"Loaded {gdp_type} GDP data: {gdp_data[gdp_type].shape}")
-            except Exception as file_error:
-                logger.error(f"Error loading {gdp_type} GDP data: {file_error}")
-                return empty_result
+        for gdp_type, filepath in processed_files.items():
+            if filepath.exists():
+                try:
+                    logger.info(f"Loading processed {gdp_type} GDP data")
+                    gdp_data[gdp_type] = pd.read_csv(filepath)
+                    logger.debug(f"Loaded {gdp_type} GDP data: {gdp_data[gdp_type].shape}")
+                except Exception as file_error:
+                    logger.error(f"Error loading processed {gdp_type} GDP data: {file_error}")
+                    logger.info(f"Falling back to original {gdp_type} GDP data file")
+                    # Fall back to original file
+                    try:
+                        gdp_data[gdp_type] = pd.read_csv(data_path / original_files[gdp_type])
+                    except Exception as orig_error:
+                        logger.error(f"Error loading original {gdp_type} GDP data: {orig_error}")
+                        return empty_result
+            else:
+                logger.info(f"Processed {gdp_type} GDP file not found, using original file")
+                try:
+                    gdp_data[gdp_type] = pd.read_csv(data_path / original_files[gdp_type])
+                    logger.debug(f"Loaded {gdp_type} GDP data: {gdp_data[gdp_type].shape}")
+                except Exception as file_error:
+                    logger.error(f"Error loading {gdp_type} GDP data: {file_error}")
+                    return empty_result
         
         # Check if we have both datasets
-        if not all(key in gdp_data for key in gdp_files.keys()):
+        if not all(key in gdp_data for key in ["current", "constant"]):
             logger.error("Could not load all required GDP datasets")
             return empty_result
             
         # Process the data
         long_dfs = []
         for gdp_type, df in gdp_data.items():
-            long_df = process_wb_data_to_long_format(
-                df, 
-                value_col_name=f"GDP_{gdp_type.capitalize()}",
-                skip_aggregates=True
-            )
+            # Check if we're dealing with original WB data (which needs processing)
+            # or already processed data
+            if "Country Name" in df.columns and "Country Code" in df.columns:
+                long_df = process_wb_data_to_long_format(
+                    df, 
+                    value_col_name=f"GDP_{gdp_type.capitalize()}",
+                    skip_aggregates=True
+                )
+            else:
+                # For processed data, rename columns if needed
+                if "value" in df.columns:
+                    df = df.rename(columns={"value": f"GDP_{gdp_type.capitalize()}"})
+                else:
+                    # Assume the value column already has the right name
+                    pass
+                long_df = df
+                
             if not long_df.empty:
                 long_dfs.append(long_df)
             else:

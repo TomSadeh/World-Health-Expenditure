@@ -1,0 +1,319 @@
+2025-04-13 17:35:26 - INFO - Logging initialized. Log file: Standardized_Expenditure\logs\whe_analysis_20250413_173526.log
+2025-04-13 17:35:26 - DEBUG - Console log level: INFO
+2025-04-13 17:35:26 - DEBUG - File log level: DEBUG
+2025-04-13 17:35:26 - INFO - Starting Comprehensive Health Expenditure calculation with all indicator combinations...
+2025-04-13 17:35:26 - INFO - Configuration:
+2025-04-13 17:35:26 - INFO -   Capitation formula: israeli
+2025-04-13 17:35:26 - INFO -   Reference year: 2017
+2025-04-13 17:35:26 - INFO -   PPP imputation: Disabled
+2025-04-13 17:35:26 - INFO -   GDP deflator imputation: Disabled
+2025-04-13 17:35:26 - INFO - Loaded israeli capitation weights from cap.csv
+2025-04-13 17:35:26 - INFO - Loading GHED data...
+2025-04-13 17:35:26 - INFO - Loaded optimized CSV file
+2025-04-13 17:35:26 - INFO - Loaded GHED data with shape: (4404, 6)
+2025-04-13 17:35:26 - DEBUG - 
+GHED data sample:
+  location ISO3  year           che  public_expenditure  private_expenditure
+0  Algeria  DZA  2000  1.438703e+11        1.035340e+11         4.026120e+10
+1  Algeria  DZA  2001  1.622309e+11        1.236638e+11         3.849203e+10
+2  Algeria  DZA  2002  1.687023e+11        1.269969e+11         4.163037e+10
+3  Algeria  DZA  2003  1.891375e+11        1.450575e+11         4.398500e+10
+4  Algeria  DZA  2004  2.179286e+11        1.554997e+11         6.232691e+10
+2025-04-13 17:35:26 - INFO - Loading PPP data...
+2025-04-13 17:35:26 - INFO - Loading processed PPP data file
+2025-04-13 17:35:26 - WARNING - No year columns found in PPP data
+2025-04-13 17:35:26 - WARNING - 
+No PPP data loaded, will proceed without PPP adjustment
+2025-04-13 17:35:26 - INFO - Loading GDP data for deflator calculation...
+2025-04-13 17:35:26 - INFO - Loading processed current GDP data
+2025-04-13 17:35:26 - DEBUG - Loaded current GDP data: (262, 68)
+2025-04-13 17:35:26 - INFO - Loading processed constant GDP data
+2025-04-13 17:35:26 - DEBUG - Loaded constant GDP data: (262, 68)
+2025-04-13 17:35:26 - ERROR - Error loading GDP data: 'ISO3'
+2025-04-13 17:35:26 - ERROR - Traceback (most recent call last):
+  File "c:\users\user\documents\github\world-health-expenditure\whe.py", line 1009, in load_gdp_data
+    gdp_merged = pd.merge(
+                 ^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\reshape\merge.py", line 170, in merge
+    op = _MergeOperation(
+         ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\reshape\merge.py", line 794, in __init__
+    ) = self._get_merge_keys()
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\reshape\merge.py", line 1297, in _get_merge_keys
+    right_keys.append(right._get_label_or_level_values(rk))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\generic.py", line 1911, in _get_label_or_level_values
+    raise KeyError(key)
+KeyError: 'ISO3'
+
+2025-04-13 17:35:26 - WARNING - 
+No GDP deflator data loaded, will proceed without constant price adjustment
+2025-04-13 17:35:26 - INFO - Loading population data...
+2025-04-13 17:35:26 - DEBUG - Men population raw data shape: (21983, 32)
+2025-04-13 17:35:26 - DEBUG - Women population raw data shape: (21983, 32)
+2025-04-13 17:35:26 - INFO - Processing men population data...
+2025-04-13 17:35:27 - INFO - Processed 175271 rows of men population data
+2025-04-13 17:35:27 - INFO - Data covers 237 countries and years 1950-2023
+2025-04-13 17:35:27 - INFO - Processing women population data...
+2025-04-13 17:35:27 - INFO - Processed 175347 rows of women population data
+2025-04-13 17:35:27 - INFO - Data covers 237 countries and years 1950-2023
+2025-04-13 17:35:27 - INFO - Created standardized country mapping with 237 ISO3 codes
+2025-04-13 17:35:30 - INFO - Created mapping with 237 ISO3 codes to country names
+2025-04-13 17:35:30 - INFO - Created ISO3 to country mapping with 237 entries
+2025-04-13 17:35:30 - INFO - Calculating standardized population using israeli formula...
+2025-04-13 17:35:30 - DEBUG - Male population data shape: (175271, 6)
+2025-04-13 17:35:30 - DEBUG - Female population data shape: (175347, 6)
+2025-04-13 17:35:30 - DEBUG - Creating consolidated keys:
+2025-04-13 17:35:30 - DEBUG -   Male data shape: (175271, 6)
+2025-04-13 17:35:30 - DEBUG -   Female data shape: (175347, 6)
+2025-04-13 17:35:30 - DEBUG -   Added 17538 unique ISO3-Year pairs from male data
+2025-04-13 17:35:30 - DEBUG -   Added 17538 unique ISO3-Year pairs from female data
+2025-04-13 17:35:30 - DEBUG -   Final consolidated keys: 17538 unique ISO3-Year pairs
+2025-04-13 17:35:30 - DEBUG -   Sample of consolidated keys:
+2025-04-13 17:35:30 - DEBUG -   ISO3  Year  Standardized_Population
+0  ABW  1950                      0.0
+1  ABW  1951                      0.0
+2  ABW  1952                      0.0
+3  ABW  1953                      0.0
+4  ABW  1954                      0.0
+2025-04-13 17:35:30 - DEBUG - Created result dataframe with 17538 rows
+2025-04-13 17:35:30 - DEBUG - Created indexed dataframe with 17538 rows
+2025-04-13 17:35:30 - INFO - Using Israeli formula with separate weights for men and women
+2025-04-13 17:35:41 - INFO - Calculated non-zero standardized population for 237 unique countries
+2025-04-13 17:35:41 - INFO - Non-zero standardized population values: 17538 out of 17538 rows
+2025-04-13 17:35:41 - INFO - Starting calculation of health expenditure indicators...
+2025-04-13 17:35:41 - INFO - Calculating comprehensive health expenditure indicators...
+2025-04-13 17:35:41 - INFO - Preparing and merging datasets...
+2025-04-13 17:35:41 - DEBUG - Merged dataset created with shape: (4404, 7)
+2025-04-13 17:35:41 - INFO - Working with data for 194 countries over 24 years
+2025-04-13 17:35:41 - INFO - Calculating base indicators with current prices...
+2025-04-13 17:35:41 - INFO - Skipping GDP deflator adjustment as no data is available
+2025-04-13 17:35:41 - INFO - Skipping current-year PPP adjustment as no data is available
+2025-04-13 17:35:41 - INFO - Skipping constant PPP adjustment as no data is available
+2025-04-13 17:35:41 - INFO - Data dictionary saved to Standardized_Expenditure\Health_Expenditure_Data_Dictionary.csv
+2025-04-13 17:35:41 - INFO - Comprehensive results saved to Standardized_Expenditure\Health_Expenditure_Comprehensive_israeli_ref2017.csv
+2025-04-13 17:35:41 - INFO - ISO3 to country mapping saved to Standardized_Expenditure\ISO3_country_mapping.csv
+2025-04-13 17:35:41 - INFO - Matched 194 out of 237 countries (81.9%)
+2025-04-13 17:35:41 - INFO - Processing completed successfully
+2025-04-13 17:38:16 - INFO - Logging initialized. Log file: Standardized_Expenditure\logs\whe_analysis_20250413_173816.log
+2025-04-13 17:38:16 - DEBUG - Console log level: INFO
+2025-04-13 17:38:16 - DEBUG - File log level: DEBUG
+2025-04-13 17:38:16 - INFO - Logging initialized. Log file: Standardized_Expenditure\logs\whe_analysis_20250413_173816.log
+2025-04-13 17:38:16 - DEBUG - Console log level: INFO
+2025-04-13 17:38:16 - DEBUG - File log level: DEBUG
+2025-04-13 17:38:16 - INFO - Starting Comprehensive Health Expenditure calculation with all indicator combinations...
+2025-04-13 17:38:16 - INFO - Configuration:
+2025-04-13 17:38:16 - INFO -   Capitation formula: israeli
+2025-04-13 17:38:17 - INFO -   Reference year: 2017
+2025-04-13 17:38:17 - INFO -   PPP imputation: Disabled
+2025-04-13 17:38:17 - INFO -   GDP deflator imputation: Disabled
+2025-04-13 17:38:17 - INFO - Loaded israeli capitation weights from cap.csv
+2025-04-13 17:38:17 - INFO - Loading GHED data...
+2025-04-13 17:38:17 - INFO - Loaded optimized CSV file
+2025-04-13 17:38:17 - INFO - Loaded GHED data with shape: (4404, 6)
+2025-04-13 17:38:17 - DEBUG - 
+GHED data sample:
+  location ISO3  year           che  public_expenditure  private_expenditure
+0  Algeria  DZA  2000  1.438703e+11        1.035340e+11         4.026120e+10
+1  Algeria  DZA  2001  1.622309e+11        1.236638e+11         3.849203e+10
+2  Algeria  DZA  2002  1.687023e+11        1.269969e+11         4.163037e+10
+3  Algeria  DZA  2003  1.891375e+11        1.450575e+11         4.398500e+10
+4  Algeria  DZA  2004  2.179286e+11        1.554997e+11         6.232691e+10
+2025-04-13 17:38:17 - INFO - Loading PPP data...
+2025-04-13 17:38:17 - INFO - Loading processed PPP data file
+2025-04-13 17:38:17 - WARNING - No year columns found in PPP data
+2025-04-13 17:38:17 - WARNING - 
+No PPP data loaded, will proceed without PPP adjustment
+2025-04-13 17:38:17 - INFO - Loading GDP data for deflator calculation...
+2025-04-13 17:38:17 - INFO - Loading processed current GDP data
+2025-04-13 17:38:17 - DEBUG - Loaded current GDP data: (263, 68)
+2025-04-13 17:38:17 - INFO - Loading processed constant GDP data
+2025-04-13 17:38:17 - DEBUG - Loaded constant GDP data: (263, 68)
+2025-04-13 17:38:17 - ERROR - Error loading GDP data: 'ISO3'
+2025-04-13 17:38:17 - ERROR - Traceback (most recent call last):
+  File "c:\users\user\documents\github\world-health-expenditure\whe.py", line 1009, in load_gdp_data
+    gdp_merged = pd.merge(
+                 ^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\reshape\merge.py", line 170, in merge
+    op = _MergeOperation(
+         ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\reshape\merge.py", line 794, in __init__
+    ) = self._get_merge_keys()
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\reshape\merge.py", line 1297, in _get_merge_keys
+    right_keys.append(right._get_label_or_level_values(rk))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\anaconda3\Lib\site-packages\pandas\core\generic.py", line 1911, in _get_label_or_level_values
+    raise KeyError(key)
+KeyError: 'ISO3'
+
+2025-04-13 17:38:17 - WARNING - 
+No GDP deflator data loaded, will proceed without constant price adjustment
+2025-04-13 17:38:17 - INFO - Loading population data...
+2025-04-13 17:38:17 - DEBUG - Men population raw data shape: (21983, 32)
+2025-04-13 17:38:17 - DEBUG - Women population raw data shape: (21983, 32)
+2025-04-13 17:38:17 - INFO - Processing men population data...
+2025-04-13 17:38:17 - INFO - Processed 175271 rows of men population data
+2025-04-13 17:38:17 - INFO - Data covers 237 countries and years 1950-2023
+2025-04-13 17:38:17 - INFO - Processing women population data...
+2025-04-13 17:38:17 - INFO - Processed 175347 rows of women population data
+2025-04-13 17:38:17 - INFO - Data covers 237 countries and years 1950-2023
+2025-04-13 17:38:17 - INFO - Created standardized country mapping with 237 ISO3 codes
+2025-04-13 17:38:20 - INFO - Created mapping with 237 ISO3 codes to country names
+2025-04-13 17:38:20 - INFO - Created ISO3 to country mapping with 237 entries
+2025-04-13 17:38:20 - INFO - Calculating standardized population using israeli formula...
+2025-04-13 17:38:20 - DEBUG - Male population data shape: (175271, 6)
+2025-04-13 17:38:20 - DEBUG - Female population data shape: (175347, 6)
+2025-04-13 17:38:20 - DEBUG - Creating consolidated keys:
+2025-04-13 17:38:20 - DEBUG -   Male data shape: (175271, 6)
+2025-04-13 17:38:20 - DEBUG -   Female data shape: (175347, 6)
+2025-04-13 17:38:20 - DEBUG -   Added 17538 unique ISO3-Year pairs from male data
+2025-04-13 17:38:20 - DEBUG -   Added 17538 unique ISO3-Year pairs from female data
+2025-04-13 17:38:20 - DEBUG -   Final consolidated keys: 17538 unique ISO3-Year pairs
+2025-04-13 17:38:20 - DEBUG -   Sample of consolidated keys:
+2025-04-13 17:38:20 - DEBUG -   ISO3  Year  Standardized_Population
+0  ABW  1950                      0.0
+1  ABW  1951                      0.0
+2  ABW  1952                      0.0
+3  ABW  1953                      0.0
+4  ABW  1954                      0.0
+2025-04-13 17:38:20 - DEBUG - Created result dataframe with 17538 rows
+2025-04-13 17:38:20 - DEBUG - Created indexed dataframe with 17538 rows
+2025-04-13 17:38:20 - INFO - Using Israeli formula with separate weights for men and women
+2025-04-13 17:38:32 - INFO - Calculated non-zero standardized population for 237 unique countries
+2025-04-13 17:38:32 - INFO - Non-zero standardized population values: 17538 out of 17538 rows
+2025-04-13 17:38:32 - INFO - Starting calculation of health expenditure indicators...
+2025-04-13 17:38:32 - INFO - Calculating comprehensive health expenditure indicators...
+2025-04-13 17:38:32 - INFO - Preparing and merging datasets...
+2025-04-13 17:38:32 - DEBUG - Merged dataset created with shape: (4404, 7)
+2025-04-13 17:38:32 - INFO - Working with data for 194 countries over 24 years
+2025-04-13 17:38:32 - INFO - Calculating base indicators with current prices...
+2025-04-13 17:38:32 - INFO - Skipping GDP deflator adjustment as no data is available
+2025-04-13 17:38:32 - INFO - Skipping current-year PPP adjustment as no data is available
+2025-04-13 17:38:32 - INFO - Skipping constant PPP adjustment as no data is available
+2025-04-13 17:38:32 - INFO - Data dictionary saved to Standardized_Expenditure\Health_Expenditure_Data_Dictionary.csv
+2025-04-13 17:38:32 - INFO - Comprehensive results saved to Standardized_Expenditure\Health_Expenditure_Comprehensive_israeli_ref2017.csv
+2025-04-13 17:38:32 - INFO - ISO3 to country mapping saved to Standardized_Expenditure\ISO3_country_mapping.csv
+2025-04-13 17:38:32 - INFO - Matched 194 out of 237 countries (81.9%)
+2025-04-13 17:38:32 - INFO - Processing completed successfully
+2025-04-13 17:39:11 - INFO - Logging initialized. Log file: Standardized_Expenditure\logs\whe_analysis_20250413_173911.log
+2025-04-13 17:39:11 - DEBUG - Console log level: INFO
+2025-04-13 17:39:11 - DEBUG - File log level: DEBUG
+2025-04-13 17:39:11 - INFO - Logging initialized. Log file: Standardized_Expenditure\logs\whe_analysis_20250413_173911.log
+2025-04-13 17:39:11 - DEBUG - Console log level: INFO
+2025-04-13 17:39:11 - DEBUG - File log level: DEBUG
+2025-04-13 17:39:11 - INFO - Starting Comprehensive Health Expenditure calculation with all indicator combinations...
+2025-04-13 17:39:11 - INFO - Configuration:
+2025-04-13 17:39:11 - INFO -   Capitation formula: israeli
+2025-04-13 17:39:11 - INFO -   Reference year: 2017
+2025-04-13 17:39:11 - INFO -   PPP imputation: Disabled
+2025-04-13 17:39:11 - INFO -   GDP deflator imputation: Disabled
+2025-04-13 17:39:11 - INFO - Loaded israeli capitation weights from cap.csv
+2025-04-13 17:39:11 - INFO - Loading GHED data...
+2025-04-13 17:39:11 - INFO - Loaded optimized CSV file
+2025-04-13 17:39:11 - INFO - Loaded GHED data with shape: (4404, 6)
+2025-04-13 17:39:11 - DEBUG - 
+GHED data sample:
+  location ISO3  year           che  public_expenditure  private_expenditure
+0  Algeria  DZA  2000  1.438703e+11        1.035340e+11         4.026120e+10
+1  Algeria  DZA  2001  1.622309e+11        1.236638e+11         3.849203e+10
+2  Algeria  DZA  2002  1.687023e+11        1.269969e+11         4.163037e+10
+3  Algeria  DZA  2003  1.891375e+11        1.450575e+11         4.398500e+10
+4  Algeria  DZA  2004  2.179286e+11        1.554997e+11         6.232691e+10
+2025-04-13 17:39:11 - INFO - Loading PPP data...
+2025-04-13 17:39:11 - INFO - Loading processed PPP data file
+2025-04-13 17:39:11 - DEBUG - Found 64 year columns from 1960 to 2023
+2025-04-13 17:39:11 - DEBUG - Found 266 rows with PPP conversion factor data
+2025-04-13 17:39:11 - DEBUG - After filtering out regions, 253 country rows remain
+2025-04-13 17:39:11 - INFO - Loaded PPP data with shape: (6657, 4)
+2025-04-13 17:39:11 - INFO - Data covers 205 countries and years 1990-2023
+2025-04-13 17:39:11 - DEBUG - 
+Sample of processed PPP data:
+2025-04-13 17:39:11 - DEBUG -   Country ISO3  Year  PPP_Factor
+0   Aruba  ABW  1990    0.923371
+1   Aruba  ABW  1991    0.943316
+2   Aruba  ABW  1992    0.957551
+3   Aruba  ABW  1993    0.984958
+4   Aruba  ABW  1994    1.025006
+2025-04-13 17:39:11 - DEBUG - 
+PPP data sample:
+  Country ISO3  Year  PPP_Factor
+0   Aruba  ABW  1990    0.923371
+1   Aruba  ABW  1991    0.943316
+2   Aruba  ABW  1992    0.957551
+3   Aruba  ABW  1993    0.984958
+4   Aruba  ABW  1994    1.025006
+2025-04-13 17:39:11 - INFO - Loading GDP data for deflator calculation...
+2025-04-13 17:39:11 - INFO - Loading processed current GDP data
+2025-04-13 17:39:11 - DEBUG - Loaded current GDP data: (266, 69)
+2025-04-13 17:39:11 - INFO - Loading processed constant GDP data
+2025-04-13 17:39:11 - DEBUG - Loaded constant GDP data: (266, 69)
+2025-04-13 17:39:11 - DEBUG - Using 2014 as reference year for ISO3=VEN (reference 2017 not available)
+2025-04-13 17:39:11 - DEBUG - Using 2009 as reference year for ISO3=LIE (reference 2017 not available)
+2025-04-13 17:39:11 - DEBUG - Using 2011 as reference year for ISO3=ERI (reference 2017 not available)
+2025-04-13 17:39:11 - DEBUG - Using 2015 as reference year for ISO3=SSD (reference 2017 not available)
+2025-04-13 17:39:11 - DEBUG - Using 2019 as reference year for ISO3=MAF (reference 2017 not available)
+2025-04-13 17:39:11 - INFO - Loaded GDP deflator data with shape: (11172, 4)
+2025-04-13 17:39:11 - DEBUG - 
+GDP deflator data sample:
+  ISO3  Year    Country  GDP_Deflator
+0  ARG  1960  Argentina  4.898564e-14
+1  AUS  1960  Australia  6.562788e-02
+2  AUT  1960    Austria  1.611333e-01
+3  BDI  1960    Burundi  6.937838e-03
+4  BEL  1960    Belgium  1.457465e-01
+2025-04-13 17:39:11 - INFO - Reference year for constant prices: 2017
+2025-04-13 17:39:11 - INFO - Loading population data...
+2025-04-13 17:39:11 - DEBUG - Men population raw data shape: (21983, 32)
+2025-04-13 17:39:11 - DEBUG - Women population raw data shape: (21983, 32)
+2025-04-13 17:39:11 - INFO - Processing men population data...
+2025-04-13 17:39:12 - INFO - Processed 175271 rows of men population data
+2025-04-13 17:39:12 - INFO - Data covers 237 countries and years 1950-2023
+2025-04-13 17:39:12 - INFO - Processing women population data...
+2025-04-13 17:39:12 - INFO - Processed 175347 rows of women population data
+2025-04-13 17:39:12 - INFO - Data covers 237 countries and years 1950-2023
+2025-04-13 17:39:12 - INFO - Created standardized country mapping with 237 ISO3 codes
+2025-04-13 17:39:15 - INFO - Created mapping with 237 ISO3 codes to country names
+2025-04-13 17:39:15 - INFO - Created ISO3 to country mapping with 237 entries
+2025-04-13 17:39:15 - INFO - Calculating standardized population using israeli formula...
+2025-04-13 17:39:15 - DEBUG - Male population data shape: (175271, 6)
+2025-04-13 17:39:15 - DEBUG - Female population data shape: (175347, 6)
+2025-04-13 17:39:15 - DEBUG - Creating consolidated keys:
+2025-04-13 17:39:15 - DEBUG -   Male data shape: (175271, 6)
+2025-04-13 17:39:15 - DEBUG -   Female data shape: (175347, 6)
+2025-04-13 17:39:15 - DEBUG -   Added 17538 unique ISO3-Year pairs from male data
+2025-04-13 17:39:15 - DEBUG -   Added 17538 unique ISO3-Year pairs from female data
+2025-04-13 17:39:15 - DEBUG -   Final consolidated keys: 17538 unique ISO3-Year pairs
+2025-04-13 17:39:15 - DEBUG -   Sample of consolidated keys:
+2025-04-13 17:39:15 - DEBUG -   ISO3  Year  Standardized_Population
+0  ABW  1950                      0.0
+1  ABW  1951                      0.0
+2  ABW  1952                      0.0
+3  ABW  1953                      0.0
+4  ABW  1954                      0.0
+2025-04-13 17:39:15 - DEBUG - Created result dataframe with 17538 rows
+2025-04-13 17:39:15 - DEBUG - Created indexed dataframe with 17538 rows
+2025-04-13 17:39:15 - INFO - Using Israeli formula with separate weights for men and women
+2025-04-13 17:39:27 - INFO - Calculated non-zero standardized population for 237 unique countries
+2025-04-13 17:39:27 - INFO - Non-zero standardized population values: 17538 out of 17538 rows
+2025-04-13 17:39:27 - INFO - Starting calculation of health expenditure indicators...
+2025-04-13 17:39:27 - INFO - Calculating comprehensive health expenditure indicators...
+2025-04-13 17:39:27 - INFO - Preparing and merging datasets...
+2025-04-13 17:39:27 - DEBUG - Merged dataset created with shape: (4404, 7)
+2025-04-13 17:39:27 - INFO - Working with data for 194 countries over 24 years
+2025-04-13 17:39:27 - INFO - Calculating base indicators with current prices...
+2025-04-13 17:39:27 - INFO - Applying GDP deflator adjustment for constant prices (reference year: 2017)...
+2025-04-13 17:39:27 - WARNING - Missing GDP deflators for 85 out of 4404 rows
+2025-04-13 17:39:27 - INFO - Applying current-year PPP adjustment...
+2025-04-13 17:39:27 - WARNING - Missing PPP factors for 138 out of 4404 rows
+2025-04-13 17:39:27 - INFO - Applying constant PPP adjustment using reference year 2017...
+2025-04-13 17:39:27 - WARNING - Missing constant PPP factors for 120 out of 4404 rows
+2025-04-13 17:39:27 - INFO - Data dictionary saved to Standardized_Expenditure\Health_Expenditure_Data_Dictionary.csv
+2025-04-13 17:39:27 - INFO - Comprehensive results saved to Standardized_Expenditure\Health_Expenditure_Comprehensive_israeli_ref2017.csv
+2025-04-13 17:39:27 - INFO - ISO3 to country mapping saved to Standardized_Expenditure\ISO3_country_mapping.csv
+2025-04-13 17:39:27 - INFO - Matched 194 out of 237 countries (81.9%)
+2025-04-13 17:39:27 - INFO - Processing completed successfully
+:27 - INFO - ISO3 to country mapping saved to Standardized_Expenditure\ISO3_country_mapping.csv
+2025-04-13 17:39:27 - INFO - Matched 194 out of 237 countries (81.9%)
+2025-04-13 17:39:27 - INFO - Processing completed successfully
