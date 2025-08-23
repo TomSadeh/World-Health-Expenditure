@@ -15,7 +15,6 @@ Required files:
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import regex as re
 import logging
 import sys
 from datetime import datetime
